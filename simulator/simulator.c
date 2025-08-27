@@ -164,7 +164,8 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     registers[instr.second_register] = registers[instr.first_register] + registers[instr.second_register];
     break;
   case addl_imm_reg:
-    registers[instr.first_register] = registers[instr.first_register] + registers[instr.immediate];
+    // printf("Adding immediate: %d r1 + %d imm", registers[instr.first_register], instr.immediate);
+    registers[instr.first_register] = registers[instr.first_register] + instr.immediate;
     break;
   case imull:
     registers[instr.second_register] = registers[instr.first_register] * registers[instr.second_register];
@@ -179,11 +180,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
   
   case movl_deref_reg:
-    registers[instr.second_register] = memory[registers[instr.first_register] + registers[instr.immediate]];
+    registers[instr.second_register] = memory[registers[instr.first_register] + instr.immediate];
     break;
 
   case movl_reg_deref:
-    memory[registers[instr.second_register] + registers[instr.immediate]] = registers[instr.first_register];
+    memory[registers[instr.second_register] + instr.immediate] = registers[instr.first_register];
     break;
 
   case movl_imm_reg: 
@@ -239,12 +240,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
 
   case jmp:
-    return program_counter + registers[instr.immediate];
-    break;
+    return program_counter + instr.immediate;
   
   case je:
     if (~(1 << ZF_bit) & *eflags){ // If ZF
-      return program_counter + registers[instr.immediate];
+      return program_counter + instr.immediate;
     } 
     else {
       return program_counter + 4;
@@ -252,7 +252,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
   case jl:
     if (SF ^ OF){ // If SF ^ OF
-      return program_counter + registers[instr.immediate];
+      return program_counter + instr.immediate;
     }
     else{
       return program_counter + 4;
@@ -260,7 +260,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
   case jle:
     if ((SF ^ OF) | ZF){ // If ZF ^ OF
-      return program_counter + registers[instr.immediate];
+      return program_counter + instr.immediate;
     }
     else{
       return program_counter + 4;
@@ -268,7 +268,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
   case jge:
     if (!(ZF ^ OF)){ // If ZF ^ OF
-      return program_counter + registers[instr.immediate];
+      return program_counter + instr.immediate;
     }
     else{
       return program_counter + 4;
@@ -276,7 +276,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
   case jbe:
     if (CF | ZF){ // If ZF ^ OF
-      return program_counter + registers[instr.immediate];
+      return program_counter + instr.immediate;
     }
     else{
       return program_counter + 4;
@@ -285,7 +285,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   case call:
     *esp -= 4;
     memory[*esp] = program_counter + 4;
-    return program_counter + registers[instr.immediate];
+    return program_counter + instr.immediate;
     
   case ret:
     if (*esp == 1024){

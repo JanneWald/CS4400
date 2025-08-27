@@ -24,6 +24,7 @@ do
     pathname=${BINARY%.*}
     testname=${BINARY##*/}
     testname=${testname%.*}
+    echo
     echo "Testing $testname"
 
     if [ -f $pathname.in ]
