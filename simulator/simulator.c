@@ -73,7 +73,7 @@ int main(int argc, char** argv)
   // Optionally print the decoded instructions for debugging
   // Will not work until you implement decode_instructions
   // Do not call this function in your submitted final version
-  print_instructions(instructions, num_instructions);
+  // print_instructions(instructions, num_instructions);
 
 
   // Once you have completed Part 1 (decoding instructions), uncomment the below block
@@ -149,11 +149,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   int SF_bit = 7;
   int OF_bit = 11;
   int* eflags = &registers[16]; // Register ID of 16
-  int CF = (*eflags >> (16 - CF_bit)) & 1
-  int ZF = (*eflags >> (16 - ZF_bit)) & 1
-  int SF = (*eflags >> (16 - SF_bit)) & 1
-  int OF = (*eflags >> (16 - OF_bit)) & 1
-  int* esp =  = &registers[6] // Stack pointer register
+  int CF = (*eflags >> (16 - CF_bit)) & 1;
+  int ZF = (*eflags >> (16 - ZF_bit)) & 1;
+  int SF = (*eflags >> (16 - SF_bit)) & 1;
+  int OF = (*eflags >> (16 - OF_bit)) & 1;
+  int* esp = &registers[6]; // Stack pointer register
 
   switch(instr.opcode)
   {
@@ -244,52 +244,52 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   
   case je:
     if (~(1 << ZF_bit) & *eflags){ // If ZF
-      return program_counter + register[instr.immediate];
+      return program_counter + registers[instr.immediate];
     } 
     else {
-      return program_counter + 4
+      return program_counter + 4;
     }
 
   case jl:
     if (SF ^ OF){ // If SF ^ OF
-      return program_counter + register[instr.immediate];
+      return program_counter + registers[instr.immediate];
     }
     else{
-      return program_counter + 4
+      return program_counter + 4;
     }
 
   case jle:
-    if ((sF ^ OF) | ZF){ // If ZF ^ OF
-      return program_counter + register[instr.immediate];
+    if ((SF ^ OF) | ZF){ // If ZF ^ OF
+      return program_counter + registers[instr.immediate];
     }
     else{
-      return program_counter + 4
+      return program_counter + 4;
     }
 
   case jge:
     if (!(ZF ^ OF)){ // If ZF ^ OF
-      return program_counter + register[instr.immediate];
+      return program_counter + registers[instr.immediate];
     }
     else{
-      return program_counter + 4
+      return program_counter + 4;
     }
 
   case jbe:
     if (CF | ZF){ // If ZF ^ OF
-      return program_counter + register[instr.immediate];
+      return program_counter + registers[instr.immediate];
     }
     else{
       return program_counter + 4;
     }
 
   case call:
-    *esp -= 4
+    *esp -= 4;
     memory[*esp] = program_counter + 4;
-    return program_counter + register[instr.immediate];
+    return program_counter + registers[instr.immediate];
     
   case ret:
-    if (*esp = 1024){
-      exit(0)
+    if (*esp == 1024){
+      exit(0);
     }
     else{
       program_counter = memory[*esp];
