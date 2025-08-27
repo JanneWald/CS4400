@@ -155,50 +155,53 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   int OF = (*eflags >> (16 - OF_bit)) & 1;
   int* esp = &registers[6]; // Stack pointer register
 
+  int* reg1 = &registers[instr.first_register]; // Register address of first register in the instruction
+  int* reg2 = &registers[instr.second_register];// Register address of second register in the instruction
+
   switch(instr.opcode)
   {
   case subl:
-    registers[instr.first_register] = registers[instr.first_register] - instr.immediate;
+    *reg1 = *reg1 - instr.immediate;
     break;
   case addl_reg_reg:
-    registers[instr.second_register] = registers[instr.first_register] + registers[instr.second_register];
+    *reg2 = *reg1 + *reg2;
     break;
   case addl_imm_reg:
     // printf("Adding immediate: %d r1 + %d imm", registers[instr.first_register], instr.immediate);
-    registers[instr.first_register] = registers[instr.first_register] + instr.immediate;
+    *reg1 = *reg1 + instr.immediate;
     break;
   case imull:
-    registers[instr.second_register] = registers[instr.first_register] * registers[instr.second_register];
+    *reg2 = *reg1 * *reg2;
     break;
     
   case shrl:
-    registers[instr.first_register] = registers[instr.first_register] >> 1;
+    *reg1 = *reg1 >> 1;
     break;
 
   case movl_reg_reg:
-    registers[instr.second_register] = registers[instr.first_register];
+    *reg2 = *reg1;
     break;
   
   case movl_deref_reg:
-    registers[instr.second_register] = memory[registers[instr.first_register] + instr.immediate];
+    *reg2 = memory[*reg1 + instr.immediate];
     break;
 
   case movl_reg_deref:
-    memory[registers[instr.second_register] + instr.immediate] = registers[instr.first_register];
+    memory[*reg2 + instr.immediate] = *reg1;
     break;
 
   case movl_imm_reg: 
     int imm = instr.immediate & 0xFFFF;        // mask last 16 bits
     if (imm & 0x8000)                          // if sign bit is 1
         imm |= 0xFFFF0000;                     // fill first 16 with 1s
-    registers[instr.first_register] = imm;    
+    *reg1 = imm;    
     break;
 
   case cmpl:
-    int result = registers[instr.first_register] < registers[instr.second_register];
+    int result = *reg1 < *reg2;
 
     // CF
-    if (registers[instr.first_register] < registers[instr.second_register]){
+    if (*reg1 < *reg2){
       *eflags |= (1 << CF_bit);
     }
     else{
@@ -214,7 +217,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
 
     // SF
-    if ((registers[instr.first_register] - registers[instr.second_register]) >> 31){
+    if ((*reg1 - *reg2) >> 31){
       *eflags |= (1 << SF_bit);
     }
     else{
@@ -222,7 +225,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
     
     // OF
-    int signed_overflow = ((registers[instr.second_register] ^ registers[instr.first_register]) & (registers[instr.second_register] ^ result)) & (1 << 31);
+    int signed_overflow = ((*reg2 ^ *reg1) & (*reg2 ^ result)) & (1 << 31);
     if(signed_overflow){
       *eflags |= (1 << OF_bit);
     }
@@ -232,7 +235,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
 
   case printr:
-    printf("%d (0x%x)\n", registers[instr.first_register], registers[instr.first_register]);
+    printf("%d (0x%x)\n", *reg1, *reg1);
     break;
   
   case readr:
@@ -299,11 +302,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   
   case pushl:
     *esp -= 4;
-    memory[*esp] = registers[instr.first_register];
+    memory[*esp] = *reg1;
     break;
   
   case popl:
-    registers[instr.first_register] = memory[*esp];
+    *reg1 = memory[*esp];
     *esp += 4;
     break;
   }
