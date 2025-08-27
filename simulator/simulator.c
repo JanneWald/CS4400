@@ -279,30 +279,33 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       return program_counter + register[instr.immediate];
     }
     else{
-      return program_counter + 4
+      return program_counter + 4;
     }
 
   case call:
     *esp -= 4
-    memory[*esp] = program_counter + 4
+    memory[*esp] = program_counter + 4;
     return program_counter + register[instr.immediate];
     
   case ret:
-    if *esp = 1024{
+    if (*esp = 1024){
       exit(0)
     }
     else{
-      program_counter = memory[*esp]
-      esp += 4
+      program_counter = memory[*esp];
+      esp += 4;
     }
     break;
   
-
-    /*
-
-  pushl,          // 18
-  popl,           // 19
-*/
+  case pushl:
+    *esp -= 4;
+    memory[*esp] = registers[instr.first_register];
+    break;
+  
+  case popl:
+    registers[instr.first_register] = memory[*esp];
+    *esp += 4;
+    break;
   }
 
   // TODO: Do not always return program_counter + 4
