@@ -153,7 +153,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   int ZF = (*eflags >> (16 - ZF_bit)) & 1
   int SF = (*eflags >> (16 - SF_bit)) & 1
   int OF = (*eflags >> (16 - OF_bit)) & 1
-
+  int* esp =  = &registers[6] // Stack pointer register
 
   switch(instr.opcode)
   {
@@ -282,9 +282,24 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       return program_counter + 4
     }
 
+  case call:
+    *esp -= 4
+    memory[*esp] = program_counter + 4
+    return program_counter + register[instr.immediate];
+    
+  case ret:
+    if *esp = 1024{
+      exit(0)
+    }
+    else{
+      program_counter = memory[*esp]
+      esp += 4
+    }
+    break;
+  
+
     /*
-  call,           // 16
-  ret,            // 17
+
   pushl,          // 18
   popl,           // 19
 */
