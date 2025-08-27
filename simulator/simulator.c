@@ -275,16 +275,14 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
 
   case jbe:
-    if (!(ZF ^ OF)){ // If ZF ^ OF
+    if (CF | ZF){ // If ZF ^ OF
       return program_counter + register[instr.immediate];
     }
     else{
       return program_counter + 4
     }
-/*
-  jle,            // 12
-  jge,            // 13
-  jbe,            // 14
+
+    /*
   call,           // 16
   ret,            // 17
   pushl,          // 18
