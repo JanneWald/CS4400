@@ -175,7 +175,9 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
     
   case shrl:
-    *reg1 = *reg1 >> 1;
+    unsigned int val = (unsigned int)*reg1;
+    val = val >> 1;
+    *reg1 = (unsigned int) val;
     break;
 
   case movl_reg_reg:
@@ -243,43 +245,44 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
 
   case jmp:
-    return program_counter + instr.immediate;
+    // printf("PC: %d\n", program_counter);
+    return program_counter + instr.immediate + 4;
   
   case je:
-    if (~(1 << ZF_bit) & *eflags){ // If ZF
-      return program_counter + instr.immediate;
+    if (~(1 << ZF_bit) & *eflags){ 
+      return program_counter + instr.immediate + 4;
     } 
     else {
       return program_counter + 4;
     }
 
   case jl:
-    if (SF ^ OF){ // If SF ^ OF
-      return program_counter + instr.immediate;
+    if (SF ^ OF){
+      return program_counter + instr.immediate + 4;
     }
     else{
       return program_counter + 4;
     }
 
   case jle:
-    if ((SF ^ OF) | ZF){ // If ZF ^ OF
-      return program_counter + instr.immediate;
+    if ((SF ^ OF) | ZF){
+      return program_counter + instr.immediate + 4;
     }
     else{
       return program_counter + 4;
     }
 
   case jge:
-    if (!(ZF ^ OF)){ // If ZF ^ OF
-      return program_counter + instr.immediate;
+    if (!(ZF ^ OF)){ 
+      return program_counter + instr.immediate + 4;
     }
     else{
       return program_counter + 4;
     }
 
   case jbe:
-    if (CF | ZF){ // If ZF ^ OF
-      return program_counter + instr.immediate;
+    if (CF | ZF){
+      return program_counter + instr.immediate + 4;
     }
     else{
       return program_counter + 4;
@@ -288,7 +291,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   case call:
     *esp -= 4;
     memory[*esp] = program_counter + 4;
-    return program_counter + instr.immediate;
+    return program_counter + instr.immediate + 4;
     
   case ret:
     if (*esp == 1024){
