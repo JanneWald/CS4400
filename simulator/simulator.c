@@ -185,18 +185,18 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
   
   case movl_deref_reg:
-    *reg2 = memory[*reg1 + instr.immediate];
+    *reg2 = *(int *)&memory[*reg1 + instr.immediate]; // OH MY GOD WHAT ON EARTH WAS THAT PROBLEM
     break;
 
   case movl_reg_deref:
-    memory[*reg2 + instr.immediate] = *reg1;
+    *(int *)&memory[*reg2 + instr.immediate] = *reg1;
     break;
 
   case movl_imm_reg: 
-    int imm = instr.immediate & 0xFFFF;        // mask last 16 bits
-    if (imm & 0x8000)                          // if sign bit is 1
-        imm |= 0xFFFF0000;                     // fill first 16 with 1s
-    *reg1 = imm;    
+    //int imm = instr.immediate & 0xFFFF;        // mask last 16 bits
+    //if (imm & 0x8000)                          // if sign bit is 1
+    //    imm |= 0xFFFF0000;                     // fill first 16 with 1s
+    *reg1 = instr.immediate;    
     break;
 
   case cmpl:
