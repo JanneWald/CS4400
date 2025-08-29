@@ -289,6 +289,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
 
   case call:
+    // printf("Call, program counter at %d", program_counter);
     *esp -= 4;
     memory[*esp] = program_counter + 4;
     return program_counter + instr.immediate + 4;
@@ -298,8 +299,9 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       exit(0);
     }
     else{
+      // printf("Returned, program counter at %d", program_counter);
       program_counter = memory[*esp];
-      esp += 4;
+      *esp += 4;
     }
     break;
   
