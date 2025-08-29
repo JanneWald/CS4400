@@ -311,11 +311,11 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   
   case pushl:
     *esp -= 4;
-    memory[*esp] = *reg1;
+    *(int*)&memory[*esp] = *reg1;
     break;
   
   case popl:
-    *reg1 = memory[*esp];
+    *reg1 = *(int*)&memory[*esp];
     *esp += 4;
     break;
   }
