@@ -289,9 +289,10 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
 
   case call:
-    // printf("Call, program counter at %d", program_counter);
+    //printf("Call, program counter at %d, stack pointer at, %d\n", program_counter, *esp);
     *esp -= 4;
-    memory[*esp] = program_counter + 4;
+    //printf("Reduced SP by 4\n");
+    *(int*)&memory[*esp] = program_counter + 4;
     return program_counter + instr.immediate + 4;
     
   case ret:
@@ -299,9 +300,12 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
       exit(0);
     }
     else{
-      // printf("Returned, program counter at %d", program_counter);
-      program_counter = memory[*esp];
+      //printf("Returned, program counter at %d, stack pointer at, %d\n", program_counter, *esp);
+      program_counter = *(int*)&memory[*esp];
       *esp += 4;
+      //printf("Increased SP by 4\n");
+      return program_counter;
+
     }
     break;
   

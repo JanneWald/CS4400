@@ -2,3 +2,4 @@ simulator.tar.gz
 simulator_bk
 *.o
 simulator/temp_output.txt
+simulator/simulator
