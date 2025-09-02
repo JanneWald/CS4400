@@ -278,7 +278,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     }
 
   case jge:
-    if (!(ZF ^ OF)){ 
+    if (!(SF ^ OF)){ 
       return program_counter + instr.immediate + 4;
     }
     else{
