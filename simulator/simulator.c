@@ -144,19 +144,23 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   // divide by 4 to get the index into the instructions array
   instruction_t instr = instructions[program_counter / 4];
   
-  int CF_bit = 0;
-  int ZF_bit = 6;
-  int SF_bit = 7;
-  int OF_bit = 11;
+  // Registers constanly used
   int* eflags = &registers[16]; // Register ID of 16
-  int CF = (*eflags >> (CF_bit)) & 1;
-  int ZF = (*eflags >> (ZF_bit)) & 1;
-  int SF = (*eflags >> (SF_bit)) & 1;
-  int OF = (*eflags >> (OF_bit)) & 1;
   int* esp = &registers[6]; // Stack pointer register
-
   int* reg1 = &registers[instr.first_register]; // Register address of first register in the instruction
   int* reg2 = &registers[instr.second_register];// Register address of second register in the instruction
+
+  // Indeces for opflags
+  int CF_bit_index = 0;
+  int ZF_bit_index = 6;
+  int SF_bit_index = 7;
+  int OF_bit_index = 11;
+
+  // Bools for opcodes
+  int CF = (*eflags >> (CF_bit_index)) & 1;
+  int ZF = (*eflags >> (ZF_bit_index)) & 1;
+  int SF = (*eflags >> (SF_bit_index)) & 1;
+  int OF = (*eflags >> (OF_bit_index)) & 1;
 
   switch(instr.opcode)
   {
@@ -188,7 +192,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
   
   case movl_deref_reg:
-    *reg2 = *(int *)&memory[*reg1 + instr.immediate]; // OH MY GOD WHAT ON EARTH WAS THAT PROBLEM
+    *reg2 = *(int *)&memory[*reg1 + instr.immediate]; // WHAT IN THE C IS THIS CAST
     break;
 
   case movl_reg_deref:
@@ -196,48 +200,45 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
 
   case movl_imm_reg: 
-    //int imm = instr.immediate & 0xFFFF;        // mask last 16 bits
-    //if (imm & 0x8000)                          // if sign bit is 1
-    //    imm |= 0xFFFF0000;                     // fill first 16 with 1s
     *reg1 = instr.immediate;    
     break;
 
 
   case cmpl:
-    unsigned int lhs = *reg2;   // destination
-    unsigned int rhs = *reg1;   // source
+    unsigned int lhs = *reg2; 
+    unsigned int rhs = *reg1; 
     unsigned int result = lhs - rhs;
 
     // CF: unsigned borrow occurred
     if (lhs < rhs) {
-        *eflags |= (1 << CF_bit);
+        *eflags |= (1 << CF_bit_index);
     } else {
-        *eflags &= ~(1 << CF_bit);
+        *eflags &= ~(1 << CF_bit_index);
     }
 
-    // ZF: result == 0
+    // ZF: reg2 - reg1 == 0
     if (result == 0) {
-        *eflags |= (1 << ZF_bit);
+        *eflags |= (1 << ZF_bit_index);
     } else {
-        *eflags &= ~(1 << ZF_bit);
+        *eflags &= ~(1 << ZF_bit_index);
     }
 
-    // SF: sign bit of result
+    // SF: sign bit of reg2 - reg1
     if (result & 0x80000000) {
-        *eflags |= (1 << SF_bit);
+        *eflags |= (1 << SF_bit_index);
     } else {
-        *eflags &= ~(1 << SF_bit);
+        *eflags &= ~(1 << SF_bit_index);
     }
 
-    // OF: signed overflow (operands have different signs, and result has sign of rhs)
+    // OF: if signed overflow of reg2 - reg1
     int s_lhs = (int)lhs;
     int s_rhs = (int)rhs;
     int s_res = s_lhs - s_rhs;
 
     if (((s_lhs ^ s_rhs) & (s_lhs ^ s_res)) & 0x80000000) {
-        *eflags |= (1 << OF_bit);
+        *eflags |= (1 << OF_bit_index);
     } else {
-        *eflags &= ~(1 << OF_bit);
+        *eflags &= ~(1 << OF_bit_index);
     }
     break;
 
