@@ -254,7 +254,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     return program_counter + instr.immediate + 4;
   
   case je:
-    if (~(1 << ZF_bit) & *eflags){ 
+    if (ZF){ 
       return program_counter + instr.immediate + 4;
     } 
     else {
