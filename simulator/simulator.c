@@ -184,7 +184,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   case shrl:
     unsigned int val = (unsigned int)*reg1;
     val = val >> 1;
-    *reg1 = (unsigned int) val;
+    *reg1 = (int) val;
     break;
 
   case movl_reg_reg:
@@ -205,37 +205,35 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
 
 
   case cmpl:
-    unsigned int lhs = *reg2; 
-    unsigned int rhs = *reg1; 
-    unsigned int result = lhs - rhs;
+    unsigned int u_reg2 = *reg2; 
+    unsigned int u_reg1 = *reg1; 
+    unsigned int u_result = u_reg2 - u_reg1;
 
-    // CF: unsigned borrow occurred
-    if (lhs < rhs) {
+    // CF: if unsigned borrow happened
+    if (u_reg2 < u_reg1) {
         *eflags |= (1 << CF_bit_index);
     } else {
         *eflags &= ~(1 << CF_bit_index);
     }
 
     // ZF: reg2 - reg1 == 0
-    if (result == 0) {
+    if (u_result == 0) {
         *eflags |= (1 << ZF_bit_index);
     } else {
         *eflags &= ~(1 << ZF_bit_index);
     }
 
     // SF: sign bit of reg2 - reg1
-    if (result & 0x80000000) {
+    if (u_result & 0x80000000) {
         *eflags |= (1 << SF_bit_index);
     } else {
         *eflags &= ~(1 << SF_bit_index);
     }
 
     // OF: if signed overflow of reg2 - reg1
-    int s_lhs = (int)lhs;
-    int s_rhs = (int)rhs;
-    int s_res = s_lhs - s_rhs;
+    int s_result = *reg2 - *reg1;
 
-    if (((s_lhs ^ s_rhs) & (s_lhs ^ s_res)) & 0x80000000) {
+    if (((*reg2 ^ *reg1) & (*reg2 ^ s_result)) & 0x80000000) {
         *eflags |= (1 << OF_bit_index);
     } else {
         *eflags &= ~(1 << OF_bit_index);
