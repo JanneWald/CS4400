@@ -149,10 +149,10 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   int SF_bit = 7;
   int OF_bit = 11;
   int* eflags = &registers[16]; // Register ID of 16
-  int CF = (*eflags >> (16 - CF_bit)) & 1;
-  int ZF = (*eflags >> (16 - ZF_bit)) & 1;
-  int SF = (*eflags >> (16 - SF_bit)) & 1;
-  int OF = (*eflags >> (16 - OF_bit)) & 1;
+  int CF = (*eflags >> (CF_bit)) & 1;
+  int ZF = (*eflags >> (ZF_bit)) & 1;
+  int SF = (*eflags >> (SF_bit)) & 1;
+  int OF = (*eflags >> (OF_bit)) & 1;
   int* esp = &registers[6]; // Stack pointer register
 
   int* reg1 = &registers[instr.first_register]; // Register address of first register in the instruction
@@ -163,13 +163,16 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
   case subl:
     *reg1 = *reg1 - instr.immediate;
     break;
+  
   case addl_reg_reg:
     *reg2 = *reg1 + *reg2;
     break;
+  
   case addl_imm_reg:
     // printf("Adding immediate: %d r1 + %d imm", registers[instr.first_register], instr.immediate);
     *reg1 = *reg1 + instr.immediate;
     break;
+
   case imull:
     *reg2 = *reg1 * *reg2;
     break;
@@ -199,40 +202,42 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     *reg1 = instr.immediate;    
     break;
 
+
   case cmpl:
-    int result = *reg1 < *reg2;
+    unsigned int lhs = *reg2;   // destination
+    unsigned int rhs = *reg1;   // source
+    unsigned int result = lhs - rhs;
 
-    // CF
-    if (*reg1 < *reg2){
-      *eflags |= (1 << CF_bit);
-    }
-    else{
-      *eflags &= ~(1 << CF_bit);
-    }
-    
-    // ZF
-    if (result == 0){
-      *eflags |= (1 << ZF_bit);
-    }
-    else{
-      *eflags &= ~(1 << ZF_bit);
+    // CF: unsigned borrow occurred
+    if (lhs < rhs) {
+        *eflags |= (1 << CF_bit);
+    } else {
+        *eflags &= ~(1 << CF_bit);
     }
 
-    // SF
-    if ((*reg1 - *reg2) >> 31){
-      *eflags |= (1 << SF_bit);
+    // ZF: result == 0
+    if (result == 0) {
+        *eflags |= (1 << ZF_bit);
+    } else {
+        *eflags &= ~(1 << ZF_bit);
     }
-    else{
-      *eflags &= ~(1 << SF_bit);
+
+    // SF: sign bit of result
+    if (result & 0x80000000) {
+        *eflags |= (1 << SF_bit);
+    } else {
+        *eflags &= ~(1 << SF_bit);
     }
-    
-    // OF
-    int signed_overflow = ((*reg2 ^ *reg1) & (*reg2 ^ result)) & (1 << 31);
-    if(signed_overflow){
-      *eflags |= (1 << OF_bit);
-    }
-    else{
-      *eflags &= ~(1 << OF_bit);
+
+    // OF: signed overflow (operands have different signs, and result has sign of rhs)
+    int s_lhs = (int)lhs;
+    int s_rhs = (int)rhs;
+    int s_res = s_lhs - s_rhs;
+
+    if (((s_lhs ^ s_rhs) & (s_lhs ^ s_res)) & 0x80000000) {
+        *eflags |= (1 << OF_bit);
+    } else {
+        *eflags &= ~(1 << OF_bit);
     }
     break;
 
