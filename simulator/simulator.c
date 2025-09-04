@@ -181,11 +181,12 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     *reg2 = *reg1 * *reg2;
     break;
     
-  case shrl:
+  case shrl:{ // Have to use {} because I cant declare a val in first statement of a goto/case
     unsigned int val = (unsigned int)*reg1;
     val = val >> 1;
     *reg1 = (int) val;
     break;
+  }
 
   case movl_reg_reg:
     *reg2 = *reg1;
@@ -204,7 +205,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
     break;
 
 
-  case cmpl:
+  case cmpl:{
     unsigned int u_reg2 = *reg2; 
     unsigned int u_reg1 = *reg1; 
     unsigned int u_result = u_reg2 - u_reg1;
@@ -239,6 +240,7 @@ unsigned int execute_instruction(unsigned int program_counter, instruction_t* in
         *eflags &= ~(1 << OF_bit_index);
     }
     break;
+  }
 
   case printr:
     printf("%d (0x%x)\n", *reg1, *reg1);
