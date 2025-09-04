@@ -1,6 +1,7 @@
 /*
  * Author: Daniel Kopta
  * Updated by: Erin Parker
+ * Filled out by: Janne Wald
  * CS 4400, University of Utah
  *
  * Simulator handout
@@ -11,7 +12,6 @@
  *
  * Some code and pseudo code has been provided as a starting point.
  *
- * Completed by: STUDENT-FILL-IN
 */
 
 #include <stdio.h>
