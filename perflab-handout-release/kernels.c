@@ -10,17 +10,45 @@
  * Please fill in the following student struct 
  */
 student_t student = {
-  "Harry Q. Bovik",     /* Full name */
-  "no_one@nowhere.edu",  /* Email address */
+  "Janne Wald",     /* Full name */
+  "janne.wald@utah.edu",  /* Email address */
 };
 
 /***************
  * COMPLEX KERNEL
  ***************/
 
-/******************************************************
- * Your different versions of the complex kernel go here
- ******************************************************/
+char complex_complex_descr[] = "complex: optimized scalar with unrolling";
+
+void complex_complex(int dim, pixel *src, pixel *dest)
+{
+    for (int i = 0; i < dim; i++) {
+        int dest_i = dim - i - 1;  // reused in dest column calculation
+
+        for (int j = 0; j < dim; j += 4) {
+
+            // Unroll 4 iterations of inner loop
+            for (int u = 0; u < 4 && (j + u) < dim; u++) {
+                int jj = j + u;
+
+                int src_idx  = RIDX(i, jj, dim);
+                int dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+
+                pixel sp = src[src_idx];
+
+                // grayscale = (r+g+b)/3 but avoid slow integer division
+                // multiply by reciprocal (2^16/3 ≈ 21845), shift right
+                int sum = sp.red + sp.green + sp.blue;
+                int gray = sum / 3;
+
+                dest[dest_idx].red = gray;
+                dest[dest_idx].green = gray;
+                dest[dest_idx].blue = gray;
+            }
+        }
+    }
+}
+
 
 /* 
  * naive_complex - The naive baseline version of complex 
@@ -34,21 +62,22 @@ void naive_complex(int dim, pixel *src, pixel *dest)
     for(j = 0; j < dim; j++)
     {
 
-      dest[RIDX(dim - j - 1, dim - i - 1, dim)].red = ((int)src[RIDX(i, j, dim)].red +
-						      (int)src[RIDX(i, j, dim)].green +
-						      (int)src[RIDX(i, j, dim)].blue) / 3;
+      dest[RIDX(dim - j - 1, dim - i - 1, dim)].red = 
+        ((int)src[RIDX(i, j, dim)].red +
+         (int)src[RIDX(i, j, dim)].green +
+         (int)src[RIDX(i, j, dim)].blue) / 3;
       
-      dest[RIDX(dim - j - 1, dim - i - 1, dim)].green = ((int)src[RIDX(i, j, dim)].red +
-							(int)src[RIDX(i, j, dim)].green +
-							(int)src[RIDX(i, j, dim)].blue) / 3;
+      dest[RIDX(dim - j - 1, dim - i - 1, dim)].green = 
+        ((int)src[RIDX(i, j, dim)].red +
+         (int)src[RIDX(i, j, dim)].green +
+         (int)src[RIDX(i, j, dim)].blue) / 3;
       
-      dest[RIDX(dim - j - 1, dim - i - 1, dim)].blue = ((int)src[RIDX(i, j, dim)].red +
-						       (int)src[RIDX(i, j, dim)].green +
-						       (int)src[RIDX(i, j, dim)].blue) / 3;
-
+      dest[RIDX(dim - j - 1, dim - i - 1, dim)].blue = 
+        ((int)src[RIDX(i, j, dim)].red +
+         (int)src[RIDX(i, j, dim)].green +
+         (int)src[RIDX(i, j, dim)].blue) / 3;
     }
 }
-
 
 /* 
  * complex - Your current working version of complex
@@ -57,7 +86,7 @@ void naive_complex(int dim, pixel *src, pixel *dest)
 char complex_descr[] = "complex: Current working version";
 void complex(int dim, pixel *src, pixel *dest)
 {
-  naive_complex(dim, src, dest);
+  complex_complex(dim, src, dest);
 }
 
 /*********************************************************************
