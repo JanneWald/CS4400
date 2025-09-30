@@ -26,25 +26,24 @@ void complex_complex(int dim, pixel *src, pixel *dest)
         int dest_i = dim - i - 1;  // reused in dest column calculation
 
         for (int j = 0; j < dim; j += 4) {
+          // Unroll 4 iterations of inner loop
+          for (int u = 0; u < 4 && (j + u) < dim; u++) {
+            int jj = j + u;
 
-            // Unroll 4 iterations of inner loop
-            for (int u = 0; u < 4 && (j + u) < dim; u++) {
-                int jj = j + u;
+            int src_idx  = RIDX(i, jj, dim);
+            int dest_idx = RIDX(dim - jj - 1, dest_i, dim);
 
-                int src_idx  = RIDX(i, jj, dim);
-                int dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+            pixel sp = src[src_idx];
 
-                pixel sp = src[src_idx];
+            // grayscale = (r+g+b)/3 but avoid slow integer division
+            // multiply by reciprocal (2^16/3 ≈ 21845), shift right
+            int sum = sp.red + sp.green + sp.blue;
+            int gray = sum / 3;
 
-                // grayscale = (r+g+b)/3 but avoid slow integer division
-                // multiply by reciprocal (2^16/3 ≈ 21845), shift right
-                int sum = sp.red + sp.green + sp.blue;
-                int gray = sum / 3;
-
-                dest[dest_idx].red = gray;
-                dest[dest_idx].green = gray;
-                dest[dest_idx].blue = gray;
-            }
+            dest[dest_idx].red = gray;
+            dest[dest_idx].green = gray;
+            dest[dest_idx].blue = gray;
+          }
         }
     }
 }
@@ -146,50 +145,50 @@ void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
 char man_unroll_4_complex_descr[] = "complex: w/o pragma, manual 4 unroll ";
 void man_unroll_4_complex(int dim, pixel *src, pixel *dest)
 {
-    for (int i = 0; i < dim; i++) {
-        int dest_i = dim - i - 1;  // reused in dest column calculation
+  for (int i = 0; i < dim; i++) {
+    int dest_i = dim - i - 1;  // reused in dest column calculation
 
-        for (int j = 0; j < dim; j += 4) {
-          int jj, src_idx, dest_idx, sum, gray;
-          pixel sp;
+    for (int j = 0; j < dim; j += 4) {
+      int jj, src_idx, dest_idx, sum, gray;
+      pixel sp;
 
-          // Unroll 1
-          jj = j + 0;
-          src_idx  = RIDX(i, jj, dim);
-          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
-          sp = src[src_idx];
-          sum = sp.red + sp.green + sp.blue;
-          gray = sum / 3;
-          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
-        
-          // Unroll 2
-          jj = j + 1;
-          src_idx  = RIDX(i, jj, dim);
-          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
-          sp = src[src_idx];
-          sum = sp.red + sp.green + sp.blue;
-          gray = sum / 3;
-          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
-        
-          // Unroll 3
-          jj = j + 2;
-          src_idx  = RIDX(i, jj, dim);
-          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
-          sp = src[src_idx];
-          sum = sp.red + sp.green + sp.blue;
-          gray = sum / 3;
-          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
-        
-          // Unroll 4
-          jj = j + 3;
-          src_idx  = RIDX(i, jj, dim);
-          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
-          sp = src[src_idx];
-          sum = sp.red + sp.green + sp.blue;
-          gray = sum / 3;
-          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
-        }
+      // Unroll 1
+      jj = j + 0;
+      src_idx  = RIDX(i, jj, dim);
+      dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+      sp = src[src_idx];
+      sum = sp.red + sp.green + sp.blue;
+      gray = sum / 3;
+      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+    
+      // Unroll 2
+      jj = j + 1;
+      src_idx  = RIDX(i, jj, dim);
+      dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+      sp = src[src_idx];
+      sum = sp.red + sp.green + sp.blue;
+      gray = sum / 3;
+      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+    
+      // Unroll 3
+      jj = j + 2;
+      src_idx  = RIDX(i, jj, dim);
+      dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+      sp = src[src_idx];
+      sum = sp.red + sp.green + sp.blue;
+      gray = sum / 3;
+      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+    
+      // Unroll 4
+      jj = j + 3;
+      src_idx  = RIDX(i, jj, dim);
+      dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+      sp = src[src_idx];
+      sum = sp.red + sp.green + sp.blue;
+      gray = sum / 3;
+      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
     }
+  }
 }
 */
 
