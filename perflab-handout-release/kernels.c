@@ -71,6 +71,55 @@ void unroll_32_complex(int dim, pixel *src, pixel *dest)
     }
 }
 
+char man_unroll_4_complex_descr[] = "complex: w/o pragma, manual 4 unroll ";
+void man_unroll_4_complex(int dim, pixel *src, pixel *dest)
+{
+    for (int i = 0; i < dim; i++) {
+        int dest_i = dim - i - 1;  // reused in dest column calculation
+
+        for (int j = 0; j < dim; j += 4) {
+          int jj, src_idx, dest_idx, sum, gray;
+          pixel sp;
+
+          // Unroll 1
+          jj = j + 0;
+          src_idx  = RIDX(i, jj, dim);
+          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+          sp = src[src_idx];
+          sum = sp.red + sp.green + sp.blue;
+          gray = sum / 3;
+          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+        
+          // Unroll 2
+          jj = j + 0;
+          src_idx  = RIDX(i, jj, dim);
+          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+          sp = src[src_idx];
+          sum = sp.red + sp.green + sp.blue;
+          gray = sum / 3;
+          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+        
+          // Unroll 3
+          jj = j + 0;
+          src_idx  = RIDX(i, jj, dim);
+          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+          sp = src[src_idx];
+          sum = sp.red + sp.green + sp.blue;
+          gray = sum / 3;
+          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+        
+          // Unroll 4
+          jj = j + 0;
+          src_idx  = RIDX(i, jj, dim);
+          dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+          sp = src[src_idx];
+          sum = sp.red + sp.green + sp.blue;
+          gray = sum / 3;
+          dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+        
+        }
+    }
+}
 
 /* 
  * naive_complex - The naive baseline version of complex 
@@ -121,6 +170,7 @@ void complex(int dim, pixel *src, pixel *dest)
 
 void register_complex_functions() {
   add_complex_function(&complex, complex_descr);
+  add_complex_function(&man_unroll_4_complex, man_unroll_4_complex_descr);
   add_complex_function(&complex_complex, complex_complex_descr);
   add_complex_function(&naive_complex, naive_complex_descr);
 }
