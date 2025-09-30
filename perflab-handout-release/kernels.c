@@ -77,17 +77,17 @@ char man_unroll_8_complex_descr[] = "complex: row-major write + manual 8 unroll"
 void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
 {
   for (int j = 0; j < dim; j++) {           // outer loop on columns for sequential writes
-    //int idx, dest_idx, sum, gray;
+    int idx, dest_idx, sum, gray;
     int dest_row = dim - j - 1;           // precompute dest row start
 
 
     for (int i = 0; i < dim; i += 8) {   // inner loop unrolled by 8
       // When in doubt, unroll it out! HAHAHAHAHAHHAHA im going joker mode copy and pasting these.
       // Unroll 1
-      int idx = RIDX(i + 0, j, dim);
-      int dest_idx = dest_row * dim + (dim - (i + 0) - 1);
-      int sum = src[idx].red + src[idx].green + src[idx].blue;
-      int gray = sum / 3;
+      idx = RIDX(i + 0, j, dim);
+      dest_idx = dest_row * dim + (dim - (i + 0) - 1);
+      sum = src[idx].red + src[idx].green + src[idx].blue;
+      gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 2
