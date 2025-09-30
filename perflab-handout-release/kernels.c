@@ -64,7 +64,7 @@ void unroll_32_complex(int dim, pixel *src, pixel *dest)
               int dest_idx = RIDX(dim - jj - 1, dest_i, dim);
               pixel sp = src[src_idx];
               int sum = sp.red + sp.green + sp.blue;
-              int gray = (sum * 21845) >> 16;
+              int gray = sum / 3;
               dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
           }
         }
