@@ -18,7 +18,7 @@ student_t student = {
  * COMPLEX KERNEL
  ***************/
 
-char complex_complex_descr[] = "complex: optimized scalar with unrolling";
+char complex_complex_descr[] = "complex: optimized scalar with reverse ordering";
 
 void complex_complex(int dim, pixel *src, pixel *dest)
 {
@@ -45,6 +45,28 @@ void complex_complex(int dim, pixel *src, pixel *dest)
                 dest[dest_idx].green = gray;
                 dest[dest_idx].blue = gray;
             }
+        }
+    }
+}
+
+char unroll_32_complex_descr[] = "complex: optimized with pragma 32 unroll";
+void unroll_32_complex(int dim, pixel *src, pixel *dest)
+{
+    for (int i = 0; i < dim; i++) {
+        int dest_i = dim - i - 1;  // reused in dest column calculation
+
+        for (int j = 0; j < dim; j += 4) {
+
+          #pragma unroll(32)
+          for (int u = 0; u < 32; u++) {
+              int jj = j + u;
+              int src_idx  = RIDX(i, jj, dim);
+              int dest_idx = RIDX(dim - jj - 1, dest_i, dim);
+              pixel sp = src[src_idx];
+              int sum = sp.red + sp.green + sp.blue;
+              int gray = (sum * 21845) >> 16;
+              dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+          }
         }
     }
 }
@@ -86,7 +108,7 @@ void naive_complex(int dim, pixel *src, pixel *dest)
 char complex_descr[] = "complex: Current working version";
 void complex(int dim, pixel *src, pixel *dest)
 {
-  complex_complex(dim, src, dest);
+  unroll_32_complex(dim, src, dest);
 }
 
 /*********************************************************************
@@ -99,9 +121,9 @@ void complex(int dim, pixel *src, pixel *dest)
 
 void register_complex_functions() {
   add_complex_function(&complex, complex_descr);
+  add_complex_function(&unroll_32_complex, unroll_32_complex_descr);
   add_complex_function(&naive_complex, naive_complex_descr);
 }
-
 
 /***************
  * MOTION KERNEL
