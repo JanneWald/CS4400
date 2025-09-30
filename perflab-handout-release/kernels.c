@@ -121,7 +121,7 @@ void complex(int dim, pixel *src, pixel *dest)
 
 void register_complex_functions() {
   add_complex_function(&complex, complex_descr);
-  add_complex_function(&unroll_32_complex, unroll_32_complex_descr);
+  add_complex_function(&complex_complex, complex_complex_descr);
   add_complex_function(&naive_complex, naive_complex_descr);
 }
 
