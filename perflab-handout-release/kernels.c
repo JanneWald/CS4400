@@ -377,7 +377,7 @@ void split_motion(int dim, pixel *src, pixel *dst)
     // Optimized 
     for (i = 0; i < dim - 2; i++) {
         for (j = 0; j < dim - 2; j++) {
-          split_inner_helper(dim, i, i, src, dst);
+          split_inner_helper(dim, i, j, src, dst);
         }
     }
 
