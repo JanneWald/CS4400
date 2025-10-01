@@ -322,6 +322,7 @@ void inline_motion(int dim, pixel *src, pixel *dst)
 }
 */
 
+/*
 void split_inner_helper(int dim, int i, int j, pixel *src, pixel *dst){
   int red = 0, green = 0, blue = 0;
 
@@ -349,6 +350,7 @@ void split_inner_helper(int dim, int i, int j, pixel *src, pixel *dst){
   dst[out_idx].green = green / 9;
   dst[out_idx].blue = blue / 9;
 }
+*/
 
 void split_border_helper(int dim, int i, int j, pixel *src, pixel *dst){
   int red = 0, green = 0, blue = 0, num_neighbors = 0;
@@ -377,8 +379,33 @@ void split_motion(int dim, pixel *src, pixel *dst)
     // Optimized 
     for (i = 0; i < dim - 2; i++) {
         for (j = 0; j < dim - 2; j++) {
-          split_inner_helper(dim, i, j, src, dst);
-        }
+//          split_inner_helper(dim, i, j, src, dst); // 1.8 speedup from 3.2 :( 
+          int red = 0, green = 0, blue = 0;
+
+          int base = RIDX(i, j, dim); // &pixel(i,j)
+          pixel p1 = src[base];
+          pixel p2 = src[base + 1];
+          pixel p3 = src[base + 2];
+
+          int base2 = base + dim; // &pixel(2i,j)
+          pixel p4 = src[base2];
+          pixel p5 = src[base2 + 1];
+          pixel p6 = src[base2 + 2];
+
+          int base3 = base + 2*dim; // &pixel(3i,j)
+          pixel p7 = src[base3];
+          pixel p8 = src[base3 + 1];
+          pixel p9 = src[base3 + 2];
+
+          red = p1.red + p2.red + p3.red + p4.red + p5.red + p6.red + p7.red + p8.red + p9.red;
+          green = p1.green + p2.green + p3.green + p4.green + p5.green + p6.green + p7.green + p8.green + p9.green;
+          blue = p1.blue + p2.blue + p3.blue + p4.blue + p5.blue + p6.blue + p7.blue + p8.blue + p9.blue;
+
+          int out_idx = RIDX(i, j, dim);
+          dst[out_idx].red = red / 9;
+          dst[out_idx].green = green / 9;
+          dst[out_idx].blue = blue / 9;
+      }
     }
 
     // ---- Borders (safe path with checks) ----
