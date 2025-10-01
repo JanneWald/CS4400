@@ -322,6 +322,25 @@ void inline_motion(int dim, pixel *src, pixel *dst)
 }
 */
 
+void split_border_helper(int dim, int i, int j, pixel *src, pixel *dst){
+  int red = 0, green = 0, blue = 0, num_neighbors = 0;
+    for (int ii = 0; ii < 3; ii++) {
+        for (int jj = 0; jj < 3; jj++) {
+            if ((i + ii < dim) && (j + jj < dim)) {
+                pixel sp = src[RIDX(i + ii, j + jj, dim)];
+                red   += sp.red;
+                green += sp.green;
+                blue  += sp.blue;
+                num_neighbors++;
+            }
+        }
+    }
+    int out_idx = RIDX(i, j, dim);
+    dst[out_idx].red   = red   / num_neighbors;
+    dst[out_idx].green = green / num_neighbors;
+    dst[out_idx].blue  = blue  / num_neighbors;
+}
+
 char split_motion_descr[] = "motion: unroll inner vs border";
 void split_motion(int dim, pixel *src, pixel *dst) 
 {
@@ -362,43 +381,13 @@ void split_motion(int dim, pixel *src, pixel *dst)
     for (i = 0; i < dim; i++) {
         for (j = dim - 2; j < dim; j++) { // right edge
             if (j < 0 || j >= dim) continue;
-            int red = 0, green = 0, blue = 0, num_neighbors = 0;
-            for (int ii = 0; ii < 3; ii++) {
-                for (int jj = 0; jj < 3; jj++) {
-                    if ((i + ii < dim) && (j + jj < dim)) {
-                        pixel sp = src[RIDX(i + ii, j + jj, dim)];
-                        red   += sp.red;
-                        green += sp.green;
-                        blue  += sp.blue;
-                        num_neighbors++;
-                    }
-                }
-            }
-            int out_idx = RIDX(i, j, dim);
-            dst[out_idx].red   = red   / num_neighbors;
-            dst[out_idx].green = green / num_neighbors;
-            dst[out_idx].blue  = blue  / num_neighbors;
+            split_border_helper(dim, i, j, src, dst);
         }
     }
     for (i = dim - 2; i < dim; i++) { // bottom edge (including corner)
         for (j = 0; j < dim - 2; j++) {
             if (i < 0 || i >= dim) continue;
-            int red = 0, green = 0, blue = 0, num_neighbors = 0;
-            for (int ii = 0; ii < 3; ii++) {
-                for (int jj = 0; jj < 3; jj++) {
-                    if ((i + ii < dim) && (j + jj < dim)) {
-                        pixel sp = src[RIDX(i + ii, j + jj, dim)];
-                        red   += sp.red;
-                        green += sp.green;
-                        blue  += sp.blue;
-                        num_neighbors++;
-                    }
-                }
-            }
-            int out_idx = RIDX(i, j, dim);
-            dst[out_idx].red   = red   / num_neighbors;
-            dst[out_idx].green = green / num_neighbors;
-            dst[out_idx].blue  = blue  / num_neighbors;
+            split_border_helper(dim, i, j, src, dst);
         }
     }
 }
