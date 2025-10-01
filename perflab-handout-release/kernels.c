@@ -345,82 +345,90 @@ void split_inner_helper(int dim, int i, int j, pixel *src, pixel *dst){
   green = p1.green + p2.green + p3.green + p4.green + p5.green + p6.green + p7.green + p8.green + p9.green;
   blue = p1.blue + p2.blue + p3.blue + p4.blue + p5.blue + p6.blue + p7.blue + p8.blue + p9.blue;
 
-  int out_idx = RIDX(i, j, dim);
-  dst[out_idx].red = red / 9;
-  dst[out_idx].green = green / 9;
-  dst[out_idx].blue = blue / 9;
+  int dest_idx = RIDX(i, j, dim);
+  dst[dest_idx].red = red / 9;
+  dst[dest_idx].green = green / 9;
+  dst[dest_idx].blue = blue / 9;
 }
 */
 
+/*
+Helper function to average "surrounding" pixels near a border where pixels are not guarenteed to be there
+
+Now branches are contained on dim * 4 pixels 
+*/
 void split_border_helper(int dim, int i, int j, pixel *src, pixel *dst){
-  int red = 0, green = 0, blue = 0, num_neighbors = 0;
+  int red = 0, green = 0, blue = 0, neighbors = 0;
     for (int ii = 0; ii < 3; ii++) {
-        for (int jj = 0; jj < 3; jj++) {
-            if ((i + ii < dim) && (j + jj < dim)) {
-                pixel sp = src[RIDX(i + ii, j + jj, dim)];
-                red   += sp.red;
-                green += sp.green;
-                blue  += sp.blue;
-                num_neighbors++;
-            }
+      for (int jj = 0; jj < 3; jj++) {
+        if ((i + ii < dim) && (j + jj < dim)) { // Edge check
+          pixel sp = src[RIDX(i + ii, j + jj, dim)]; // Cache pixel
+          red += sp.red;
+          green += sp.green;
+          blue += sp.blue;
+          neighbors++;
         }
+      }
     }
-    int out_idx = RIDX(i, j, dim);
-    dst[out_idx].red   = red   / num_neighbors;
-    dst[out_idx].green = green / num_neighbors;
-    dst[out_idx].blue  = blue  / num_neighbors;
+
+  int dest_idx = RIDX(i, j, dim);
+  dst[dest_idx].red = red / neighbors;
+  dst[dest_idx].green = green / neighbors;
+  dst[dest_idx].blue = blue / neighbors;
 }
 
 char split_motion_descr[] = "motion: unroll inner vs border";
 void split_motion(int dim, pixel *src, pixel *dst) 
 {
-    int i, j;
+  int i, j;
+  
+  // Optimized/unrolled 3x3 pixel area averaging in most of the picture that isnt near a border
+  for (i = 0; i < dim - 2; i++) {
+    for (j = 0; j < dim - 2; j++) {
+      //split_inner_helper(dim, i, j, src, dst); // 1.8 speedup from 3.2 :( 
+      int red = 0, green = 0, blue = 0;
 
-    // Optimized 
-    for (i = 0; i < dim - 2; i++) {
-        for (j = 0; j < dim - 2; j++) {
-//          split_inner_helper(dim, i, j, src, dst); // 1.8 speedup from 3.2 :( 
-          int red = 0, green = 0, blue = 0;
+      int base = RIDX(i, j, dim); // &pixel(i,j)
+      pixel p1 = src[base];
+      pixel p2 = src[base + 1];
+      pixel p3 = src[base + 2];
 
-          int base = RIDX(i, j, dim); // &pixel(i,j)
-          pixel p1 = src[base];
-          pixel p2 = src[base + 1];
-          pixel p3 = src[base + 2];
+      int base2 = base + dim; // &pixel(2i,j)
+      pixel p4 = src[base2];
+      pixel p5 = src[base2 + 1];
+      pixel p6 = src[base2 + 2];
 
-          int base2 = base + dim; // &pixel(2i,j)
-          pixel p4 = src[base2];
-          pixel p5 = src[base2 + 1];
-          pixel p6 = src[base2 + 2];
+      int base3 = base + 2*dim; // &pixel(3i,j)
+      pixel p7 = src[base3];
+      pixel p8 = src[base3 + 1];
+      pixel p9 = src[base3 + 2];
 
-          int base3 = base + 2*dim; // &pixel(3i,j)
-          pixel p7 = src[base3];
-          pixel p8 = src[base3 + 1];
-          pixel p9 = src[base3 + 2];
+      red = p1.red + p2.red + p3.red + p4.red + p5.red + p6.red + p7.red + p8.red + p9.red;
+      green = p1.green + p2.green + p3.green + p4.green + p5.green + p6.green + p7.green + p8.green + p9.green;
+      blue = p1.blue + p2.blue + p3.blue + p4.blue + p5.blue + p6.blue + p7.blue + p8.blue + p9.blue;
 
-          red = p1.red + p2.red + p3.red + p4.red + p5.red + p6.red + p7.red + p8.red + p9.red;
-          green = p1.green + p2.green + p3.green + p4.green + p5.green + p6.green + p7.green + p8.green + p9.green;
-          blue = p1.blue + p2.blue + p3.blue + p4.blue + p5.blue + p6.blue + p7.blue + p8.blue + p9.blue;
-
-          int out_idx = RIDX(i, j, dim);
-          dst[out_idx].red = red / 9;
-          dst[out_idx].green = green / 9;
-          dst[out_idx].blue = blue / 9;
-      }
+      int dest_idx = RIDX(i, j, dim);
+      dst[dest_idx].red = red / 9;
+      dst[dest_idx].green = green / 9;
+      dst[dest_idx].blue = blue / 9;
     }
+  }
 
-    // ---- Borders (safe path with checks) ----
-    for (i = 0; i < dim; i++) {
-        for (j = dim - 2; j < dim; j++) { // right edge
-            if (j < 0 || j >= dim) continue;
-            split_border_helper(dim, i, j, src, dst);
-        }
+  //// Border averaging:
+  // Right edge
+  for (i = 0; i < dim; i++) {
+    for (j = dim - 2; j < dim; j++) { 
+      if (j < 0 || j >= dim) continue;
+      split_border_helper(dim, i, j, src, dst); // not as bad that its not inline, only a small amount of func calls
     }
-    for (i = dim - 2; i < dim; i++) { // bottom edge (including corner)
-        for (j = 0; j < dim - 2; j++) {
-            if (i < 0 || i >= dim) continue;
-            split_border_helper(dim, i, j, src, dst);
-        }
+  }
+  // Bottom edge
+  for (i = dim - 2; i < dim; i++) {
+    for (j = 0; j < dim - 2; j++) {
+      if (i < 0 || i >= dim) continue;
+      split_border_helper(dim, i, j, src, dst);
     }
+  }
 }
 
 /*
