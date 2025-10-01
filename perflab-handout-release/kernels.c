@@ -287,8 +287,9 @@ static pixel weighted_combo(int dim, int i, int j, pixel *src)
 }
 
 
-
+/*
 char inline_motion_descr[] = "motion: inlined weighted_combo";
+// 1.1 speedup
 void inline_motion(int dim, pixel *src, pixel *dst) 
 {
   for (int i = 0; i < dim; i++) {
@@ -319,7 +320,88 @@ void inline_motion(int dim, pixel *src, pixel *dst)
     }
   }
 }
+*/
 
+char split_motion_descr[] = "motion: unroll inner vs border";
+void split_motion(int dim, pixel *src, pixel *dst) 
+{
+    int i, j;
+
+    // ---- Inner region (fast path, always 3x3 block available) ----
+    for (i = 0; i < dim - 2; i++) {
+        for (j = 0; j < dim - 2; j++) {
+            int red = 0, green = 0, blue = 0;
+
+            int base = RIDX(i, j, dim);
+            pixel p1 = src[base];
+            pixel p2 = src[base + 1];
+            pixel p3 = src[base + 2];
+
+            int base2 = base + dim;
+            pixel p4 = src[base2];
+            pixel p5 = src[base2 + 1];
+            pixel p6 = src[base2 + 2];
+
+            int base3 = base + 2*dim;
+            pixel p7 = src[base3];
+            pixel p8 = src[base3 + 1];
+            pixel p9 = src[base3 + 2];
+
+            red   = p1.red + p2.red + p3.red + p4.red + p5.red + p6.red + p7.red + p8.red + p9.red;
+            green = p1.green + p2.green + p3.green + p4.green + p5.green + p6.green + p7.green + p8.green + p9.green;
+            blue  = p1.blue + p2.blue + p3.blue + p4.blue + p5.blue + p6.blue + p7.blue + p8.blue + p9.blue;
+
+            int out_idx = RIDX(i, j, dim);
+            dst[out_idx].red   = red   / 9;
+            dst[out_idx].green = green / 9;
+            dst[out_idx].blue  = blue  / 9;
+        }
+    }
+
+    // ---- Borders (safe path with checks) ----
+    for (i = 0; i < dim; i++) {
+        for (j = dim - 2; j < dim; j++) { // right edge
+            if (j < 0 || j >= dim) continue;
+            int red = 0, green = 0, blue = 0, num_neighbors = 0;
+            for (int ii = 0; ii < 3; ii++) {
+                for (int jj = 0; jj < 3; jj++) {
+                    if ((i + ii < dim) && (j + jj < dim)) {
+                        pixel sp = src[RIDX(i + ii, j + jj, dim)];
+                        red   += sp.red;
+                        green += sp.green;
+                        blue  += sp.blue;
+                        num_neighbors++;
+                    }
+                }
+            }
+            int out_idx = RIDX(i, j, dim);
+            dst[out_idx].red   = red   / num_neighbors;
+            dst[out_idx].green = green / num_neighbors;
+            dst[out_idx].blue  = blue  / num_neighbors;
+        }
+    }
+    for (i = dim - 2; i < dim; i++) { // bottom edge (including corner)
+        for (j = 0; j < dim - 2; j++) {
+            if (i < 0 || i >= dim) continue;
+            int red = 0, green = 0, blue = 0, num_neighbors = 0;
+            for (int ii = 0; ii < 3; ii++) {
+                for (int jj = 0; jj < 3; jj++) {
+                    if ((i + ii < dim) && (j + jj < dim)) {
+                        pixel sp = src[RIDX(i + ii, j + jj, dim)];
+                        red   += sp.red;
+                        green += sp.green;
+                        blue  += sp.blue;
+                        num_neighbors++;
+                    }
+                }
+            }
+            int out_idx = RIDX(i, j, dim);
+            dst[out_idx].red   = red   / num_neighbors;
+            dst[out_idx].green = green / num_neighbors;
+            dst[out_idx].blue  = blue  / num_neighbors;
+        }
+    }
+}
 
 /*
  * naive_motion - The naive baseline version of motion 
@@ -342,7 +424,7 @@ void naive_motion(int dim, pixel *src, pixel *dst)
 char motion_descr[] = "motion: Current working version";
 void motion(int dim, pixel *src, pixel *dst) 
 {
-  inline_motion(dim, src, dst);
+  split_motion(dim, src, dst);
 }
 
 /********************************************************************* 
@@ -355,5 +437,6 @@ void motion(int dim, pixel *src, pixel *dst)
 
 void register_motion_functions() {
   add_motion_function(&motion, motion_descr);
+//  add_motion_function(&inline_motion, inline_motion_descr);
   add_motion_function(&naive_motion, naive_motion_descr);
 }
