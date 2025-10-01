@@ -75,12 +75,12 @@ char man_unroll_8_complex_descr[] = "complex: row-major write + manual 8 unroll"
 
 void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
 {
-  for (int j = 0; j < dim; j++) {           // outer loop on columns for sequential writes
+  for (int j = 0; j < dim; j++) { // outer loop on COLUMNS for sequential writes
     int idx, dest_idx, sum, gray;
-    int dest_row = dim - j - 1;           // precompute dest row start
+    int dest_row = dim - j - 1; // used in every unroll iteration
 
 
-    for (int i = 0; i < dim; i += 8) {   // inner loop unrolled by 8
+    for (int i = 0; i < dim; i += 8) { // inner loop unrolled by 8, too high is slow.
       // When in doubt, unroll it out! HAHAHAHAHAHHAHA im going joker mode copy and pasting these.
       // Unroll 1
       idx = RIDX(i + 0, j, dim);
@@ -270,11 +270,11 @@ static pixel weighted_combo(int dim, int i, int j, pixel *src)
 
   int num_neighbors = 0;
   for(ii=0; ii < 3; ii++)
-    for(jj=0; jj < 3; jj++) 
+    for(jj=0; jj < 3; jj++)  // unroll into 9, 
       if ((i + ii < dim) && (j + jj < dim)) 
       {
         num_neighbors++;
-        red += (int) src[RIDX(i+ii,j+jj,dim)].red;
+        red += (int) src[RIDX(i+ii,j+jj,dim)].red; // Precompute RIDX(i+11, j+11, dim), or save pixel locally
         green += (int) src[RIDX(i+ii,j+jj,dim)].green;
         blue += (int) src[RIDX(i+ii,j+jj,dim)].blue;
       }
@@ -288,9 +288,37 @@ static pixel weighted_combo(int dim, int i, int j, pixel *src)
 
 
 
-/******************************************************
- * Your different versions of the motion kernel go here
- ******************************************************/
+char inline_motion_descr[] = "motion: inlined weighted_combo";
+void inline_motion(int dim, pixel *src, pixel *dst) 
+{
+  for (int i = 0; i < dim; i++) {
+    for (int j = 0; j < dim; j++) {
+      int red = 0, green = 0, blue = 0;
+      int num_neighbors = 0;
+
+
+      // Inlining should stop dim^2 func calls
+      for (int ii = 0; ii < 3; ii++) {
+        for (int jj = 0; jj < 3; jj++) {
+
+          if ((i + ii < dim) && (j + jj < dim)) {
+              int idx = RIDX(i + ii, j + jj, dim);
+              pixel sp = src[idx];
+              red += sp.red;
+              green += sp.green;
+              blue += sp.blue;
+              num_neighbors++;
+            }
+          }
+      }
+
+      int dest_idx = RIDX(i, j, dim);
+      dst[dest_idx].red   = red   / num_neighbors;
+      dst[dest_idx].green = green / num_neighbors;
+      dst[dest_idx].blue  = blue  / num_neighbors;
+    }
+  }
+}
 
 
 /*
@@ -303,7 +331,7 @@ void naive_motion(int dim, pixel *src, pixel *dst)
     
   for (i = 0; i < dim; i++)
     for (j = 0; j < dim; j++)
-      dst[RIDX(i, j, dim)] = weighted_combo(dim, i, j, src);
+      dst[RIDX(i, j, dim)] = weighted_combo(dim, i, j, src); // Func calls are expensive, inline!
 }
 
 
@@ -314,7 +342,7 @@ void naive_motion(int dim, pixel *src, pixel *dst)
 char motion_descr[] = "motion: Current working version";
 void motion(int dim, pixel *src, pixel *dst) 
 {
-  naive_motion(dim, src, dst);
+  inline_motion(dim, src, dst);
 }
 
 /********************************************************************* 
