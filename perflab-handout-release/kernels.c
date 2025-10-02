@@ -18,6 +18,7 @@ student_t student = {
  * COMPLEX KERNEL
  ***************/
 
+/*
 char complex_complex_descr[] = "complex: optimized scalar with reverse ordering";
 
 void complex_complex(int dim, pixel *src, pixel *dest)
@@ -47,6 +48,7 @@ void complex_complex(int dim, pixel *src, pixel *dest)
         }
     }
 }
+*/
 
 /*
 char unroll_32_complex_descr[] = "complex: optimized with pragma 32 unroll";
@@ -243,7 +245,7 @@ void register_complex_functions() {
   add_complex_function(&complex, complex_descr);
   //add_complex_function(&unroll_32_complex, unroll_32_complex_descr);
   //add_complex_function(&man_unroll_4_complex, man_unroll_4_complex);
-  add_complex_function(&complex_complex, complex_complex_descr);
+  //add_complex_function(&complex_complex, complex_complex_descr);
   add_complex_function(&naive_complex, naive_complex_descr);
 }
 
@@ -359,19 +361,19 @@ Now branches are contained on dim * 4 pixels
 */
 void split_border_helper(int dim, int i, int j, pixel *src, pixel *dst){
   int red = 0, green = 0, blue = 0, neighbors = 0;
-    for (int ii = 0; ii < 3; ii++) {
-      for (int jj = 0; jj < 3; jj++) {
-        if ((i + ii < dim) && (j + jj < dim)) { // Edge check
-          pixel sp = src[RIDX(i + ii, j + jj, dim)]; // Cache pixel
-          red += sp.red;
-          green += sp.green;
-          blue += sp.blue;
-          neighbors++;
-        }
+  for (int ii = 0; ii < 3; ii++) {
+    for (int jj = 0; jj < 3; jj++) {
+      if ((i + ii < dim) && (j + jj < dim)) { // Edge check
+        pixel sp = src[RIDX(i + ii, j + jj, dim)]; // Cache pixel
+        red += sp.red;
+        green += sp.green;
+        blue += sp.blue;
+        neighbors++;
       }
     }
+  }
 
-  int dest_idx = RIDX(i, j, dim);
+  int dest_idx = RIDX(i, j, dim); // Precompute
   dst[dest_idx].red = red / neighbors;
   dst[dest_idx].green = green / neighbors;
   dst[dest_idx].blue = blue / neighbors;
