@@ -82,56 +82,55 @@ void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
 
     for (int i = 0; i < dim; i += 8) { // inner loop unrolled by 8, too high is slow.
       // When in doubt, unroll it out! HAHAHAHAHAHHAHA im going joker mode copy and pasting these.
-      // Unroll 1
-      int dest_col_base = dim - i - 1;  // base col for this block
+      int dest_col = dim - i - 1;  // base col for this block
 
       // Unroll 1
-      int idx = RIDX(i + 0, j, dim);
-      int dest_idx = RIDX(dest_row, dest_col_base - 0, dim);
-      int gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      int s_idx = RIDX(i + 0, j, dim);
+      int d_idx = RIDX(dest_row, dest_col - 0, dim);
+      int gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 2
-      idx = RIDX(i + 1, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 1, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 1, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 1, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 3
-      idx = RIDX(i + 2, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 2, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 2, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 2, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 4
-      idx = RIDX(i + 3, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 3, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 3, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 3, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 5
-      idx = RIDX(i + 4, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 4, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 4, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 4, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 6
-      idx = RIDX(i + 5, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 5, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 5, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 5, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 7
-      idx = RIDX(i + 6, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 6, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 6, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 6, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
 
       // Unroll 8
-      idx = RIDX(i + 7, j, dim);
-      dest_idx = RIDX(dest_row, dest_col_base - 7, dim);
-      gray = (src[idx].red + src[idx].green + src[idx].blue) / 3;
-      dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
+      s_idx = RIDX(i + 7, j, dim);
+      d_idx = RIDX(dest_row, dest_col - 7, dim);
+      gray = (src[s_idx].red + src[s_idx].green + src[s_idx].blue) / 3;
+      dest[d_idx].red = dest[d_idx].green = dest[d_idx].blue = gray;
     }
   }
 }
