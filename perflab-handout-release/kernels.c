@@ -78,7 +78,7 @@ char man_unroll_8_complex_descr[] = "complex: row-major write + manual 8 unroll"
 void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
 {
   for (int j = 0; j < dim; j++) { // outer loop on COLUMNS for sequential writes
-    int idx, dest_idx, sum, gray;
+    int idx;
     int dest_row = dim - j - 1; // used in every unroll iteration
 
 
