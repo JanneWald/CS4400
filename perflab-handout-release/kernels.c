@@ -85,63 +85,69 @@ void man_unroll_8_complex(int dim, pixel *src, pixel *dest)
     for (int i = 0; i < dim; i += 8) { // inner loop unrolled by 8, too high is slow.
       // When in doubt, unroll it out! HAHAHAHAHAHHAHA im going joker mode copy and pasting these.
       // Unroll 1
-      idx = RIDX(i + 0, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 0) - 1);
-      sum = src[idx].red + src[idx].green + src[idx].blue;
-      gray = sum / 3;
+      int dest_col_base = dim - i - 1;  // base col for this block
+
+      // Unroll 1
+      int idx = RIDX(i + 0, j, dim);
+      int dest_idx = RIDX(dest_row, dest_col_base - 0, dim);
+      int sum = src[idx].red + src[idx].green + src[idx].blue;
+      int gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 2
       idx = RIDX(i + 1, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 1) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 1, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 3
       idx = RIDX(i + 2, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 2) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 2, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 4
       idx = RIDX(i + 3, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 3) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 3, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 5
       idx = RIDX(i + 4, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 4) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 4, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 6
       idx = RIDX(i + 5, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 5) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 5, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 7
       idx = RIDX(i + 6, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 6) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 6, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
 
       // Unroll 8
       idx = RIDX(i + 7, j, dim);
-      dest_idx = dest_row * dim + (dim - (i + 7) - 1);
+      dest_idx = RIDX(dest_row, dest_col_base - 7, dim);
       sum = src[idx].red + src[idx].green + src[idx].blue;
       gray = sum / 3;
       dest[dest_idx].red = dest[dest_idx].green = dest[dest_idx].blue = gray;
     }
   }
 }
+    
+  
+
 
 /*
 char man_unroll_4_complex_descr[] = "complex: w/o pragma, manual 4 unroll ";
