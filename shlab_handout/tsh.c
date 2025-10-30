@@ -200,6 +200,7 @@ void eval(char *cmdline)
   int bg;               /* should the job run in bg or fg? */
   pid_t pid;
   sigset_t mask_all, mask_one, prev_one;
+  int pipefd[2];  // Pipe file descriptors
 
   /* Initialize signal sets */
   sigfillset(&mask_all);
@@ -237,39 +238,97 @@ void eval(char *cmdline)
   /* BLOCK SIGCHLD to avoid race condition */
   sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
 
-  /* Fork child process */
-  if ((pid = fork()) == 0) {
-      /* Child process */
-      
-      /* Unblock SIGCHLD in child */
+  if (cmd2 != NULL) { // Pipe Case :(    
+    // Create pipe
+    if (pipe(pipefd) < 0) {
+      unix_error("pipe error");
+    }
+    
+    /* Fork first child (writes to pipe) */
+    if ((pid = fork()) == 0) {
+      /* First child process */
       sigprocmask(SIG_SETMASK, &prev_one, NULL);
-      
-      /* Put child in its own process group */
       setpgid(0, 0);
       
-      /* Execute the command */
+      // Set up pipe: stdout -> pipe write end
+      close(pipefd[0]);  // Close read end
+      dup2(pipefd[1], STDOUT_FILENO);  // stdout -> pipe
+      close(pipefd[1]);  // Close original write end
+      
+      // Execute first command
       if (execve(argv1[0], argv1, environ) < 0) {
-          printf("%s: Command not found\n", argv1[0]);
-          exit(1);
+        printf("%s: Command not found\n", argv1[0]);
+        exit(1);
       }
+    }
+    
+    /* Parent: Add first job to job list */
+    sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    sigprocmask(SIG_SETMASK, &prev_one, NULL);
+    
+    // Fork second child (reads from pipe)
+    if ((pid = fork()) == 0) {
+      /* Second child process */
+      sigprocmask(SIG_SETMASK, &prev_one, NULL);
+      setpgid(0, 0);
+      
+      // Set up pipe: stdin -> pipe read end  
+      close(pipefd[1]);  // Close write end
+      dup2(pipefd[0], STDIN_FILENO);   // stdin -> pipe
+      close(pipefd[0]);  // Close original read end
+      
+      // Execute second command
+      if (execve(argv2[0], argv2, environ) < 0) {
+        printf("%s: Command not found\n", argv2[0]);
+        exit(1);
+      }
+    }
+    
+    /* Parent: Close pipe ends and add second job */
+    close(pipefd[0]);
+    close(pipefd[1]);
+    
+    sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    sigprocmask(SIG_SETMASK, &prev_one, NULL);
+        
   }
-  
-  /* Parent process */
-  
-  /* Add job to job list */
-  sigprocmask(SIG_BLOCK, &mask_all, NULL);
-  addjob(jobs, pid, bg ? BG : FG, cmdline);
-  sigprocmask(SIG_SETMASK, &prev_one, NULL);
+  else {  
+    /* Fork child process */
+    if ((pid = fork()) == 0) {
+        /* Child process */
+        
+        /* Unblock SIGCHLD in child */
+        sigprocmask(SIG_SETMASK, &prev_one, NULL);
+        
+        /* Put child in its own process group */
+        setpgid(0, 0);
+        
+        /* Execute the command */
+        if (execve(argv1[0], argv1, environ) < 0) {
+            printf("%s: Command not found\n", argv1[0]);
+            exit(1);
+        }
+    }
+    
+    /* Parent process */
+    
+    /* Add job to job list */
+    sigprocmask(SIG_BLOCK, &mask_all, NULL);
+    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
-  /* Wait for foreground job if needed */
-  if (!bg) {
-      waitfg(pid);
-  } else {
-      /* Background job - print job info */
-      struct job_t *job = getjobpid(jobs, pid);
-      if (job) {
-          printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-      }
+    /* Wait for foreground job if needed */
+    if (!bg) {
+        waitfg(pid);
+    } else {
+        /* Background job - print job info */
+        struct job_t *job = getjobpid(jobs, pid);
+        if (job) {
+            printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+        }
+    }
   }
 
   // End TODO ====================================================
