@@ -198,10 +198,16 @@ void eval(char *cmdline)
   char *argv1[MAXARGS]; /* argv for execve() */
   char *argv2[MAXARGS]; /* argv for second command execve() */
   int bg;               /* should the job run in bg or fg? */
+  pid_t pid;
+  sigset_t mask_all, mask_one, prev_one;
+
+  /* Initialize signal sets */
+  sigfillset(&mask_all);
+  sigemptyset(&mask_one);
+  sigaddset(&mask_one, SIGCHLD);
 
   /* If the line contains two commands, split into two strings */
   char* cmd2 = strchr(cmdline, '|');
-  
   if(cmd2 != NULL && strlen(cmd2) >= 3 && (cmd2 - cmdline) >= 2){
     // Terminate the first command with newline and null character
     cmd2--;
@@ -220,35 +226,53 @@ void eval(char *cmdline)
     parseline(cmd2, argv2, 2);
 
 
-    
-  // TODO: Execute the command(s)
+
+  // TODO: Execute the command(s) ====================================================
   //       If cmd2 is NULL, then there is only one command
 
   // Check if it's a built-in command
   if (builtin_cmd(argv1)) {
     return;  // Already handled command
   }
+  /* BLOCK SIGCHLD to avoid race condition */
+  sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
 
-  printf("Would execute: %s", argv1[0]); // Debug message
-
-  for (int i = 1; argv1[i] != NULL; i++) {
-    printf(" %s", argv1[i]);
+  /* Fork child process */
+  if ((pid = fork()) == 0) {
+      /* Child process */
+      
+      /* Unblock SIGCHLD in child */
+      sigprocmask(SIG_SETMASK, &prev_one, NULL);
+      
+      /* Put child in its own process group */
+      setpgid(0, 0);
+      
+      /* Execute the command */
+      if (execve(argv1[0], argv1, environ) < 0) {
+          printf("%s: Command not found\n", argv1[0]);
+          exit(1);
+      }
   }
-  if (bg) {
-    printf(" &");
-  }
-  printf("\n");
-
-  if (cmd2 != NULL) {
-    printf("Would pipe to: %s", argv2[0]);
-    for (int i = 1; argv2[i] != NULL; i++) {
-      printf(" %s", argv2[i]);
-    }
-    printf("\n");
-  }
-
-  // End TODO
   
+  /* Parent process */
+  
+  /* Add job to job list */
+  sigprocmask(SIG_BLOCK, &mask_all, NULL);
+  addjob(jobs, pid, bg ? BG : FG, cmdline);
+  sigprocmask(SIG_SETMASK, &prev_one, NULL);
+
+  /* Wait for foreground job if needed */
+  if (!bg) {
+      waitfg(pid);
+  } else {
+      /* Background job - print job info */
+      struct job_t *job = getjobpid(jobs, pid);
+      if (job) {
+          printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+      }
+  }
+  
+  // End TODO ====================================================
   return;
 }
 
