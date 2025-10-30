@@ -219,10 +219,36 @@ void eval(char *cmdline)
   if(cmd2 != NULL)
     parseline(cmd2, argv2, 2);
 
+
+    
   // TODO: Execute the command(s)
   //       If cmd2 is NULL, then there is only one command
 
+  // Check if it's a built-in command
+  if (builtin_cmd(argv1)) {
+    return;  // Already handled command
+  }
 
+  printf("Would execute: %s", argv1[0]); // Debug message
+
+  for (int i = 1; argv1[i] != NULL; i++) {
+    printf(" %s", argv1[i]);
+  }
+  if (bg) {
+    printf(" &");
+  }
+  printf("\n");
+
+  if (cmd2 != NULL) {
+    printf("Would pipe to: %s", argv2[0]);
+    for (int i = 1; argv2[i] != NULL; i++) {
+      printf(" %s", argv2[i]);
+    }
+    printf("\n");
+  }
+
+  // End TODO
+  
   return;
 }
 
@@ -304,6 +330,15 @@ int builtin_cmd(char **argv)
   //       "bg" and "fg" commands are partially handled here,
   //       but you need to implement the do_bg and do_fg functions.
 
+  if (strcmp(cmd, "quit") == 0) {
+    exit(0);
+  }
+
+  if (strcmp(cmd, "jobs") == 0) {
+    listjobs(jobs);
+    return 1;
+  }
+  // End TODO
 
   if (!strcmp(cmd, "bg") || !strcmp(cmd, "fg")) { /* bg and fg commands */
       
@@ -342,7 +377,7 @@ int builtin_cmd(char **argv)
  */
 void do_bg(int jid) 
 {
-  return;
+  printf("bg command for job %d (not implemented yet)\n", jid);
 }
 
 /* 
@@ -350,7 +385,7 @@ void do_bg(int jid)
  */
 void do_fg(int jid) 
 {
-  return;
+  printf("fg command for job %d (not implemented yet)\n", jid);
 }
 
 /* 
@@ -358,7 +393,7 @@ void do_fg(int jid)
  */
 void waitfg(pid_t pid)
 {
-  return;
+  printf("waitfg for pid %d (not implemented yet)\n", pid);
 }
 
 /*****************

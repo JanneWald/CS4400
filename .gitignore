@@ -4,3 +4,9 @@ simulator_bk
 simulator/temp_output.txt
 simulator/simulator
 driver
+shlab_handout/myint
+.gitignore
+shlab_handout/mysplit
+shlab_handout/myspin
+shlab_handout/mystop
+shlab_handout/tsh
