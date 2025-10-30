@@ -420,9 +420,10 @@ void waitfg(pid_t pid)
   sigset_t mask;
   sigemptyset(&mask);
   
-  // Wait til the fg job is gone in job list
+  /* Wait only for the specific foreground job to finish */
   while (getjobpid(jobs, pid) != NULL) {
-    sigsuspend(&mask);
+      /* Use a more careful approach - sleep briefly */
+      usleep(10000);  /* 10ms sleep */
   }
 }
 
@@ -444,8 +445,12 @@ void sigchld_handler(int sig)
   int status;
   
   while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-      
+    if (verbose) {
+      printf("sigchld_handler: reaped pid %d, status=%d\n", pid, status);
+    }
+
     if (WIFEXITED(status)) { // Normal termination
+      if (verbose) printf("sigchld_handler: normal exit\n");
       deletejob(jobs, pid);
     }
     else if (WIFSIGNALED(status)) { // Terminated by signal (ctrlc)
@@ -455,10 +460,14 @@ void sigchld_handler(int sig)
     else if (WIFSTOPPED(status)) {// Stopped by signal (ctrlz)
       struct job_t *job = getjobpid(jobs, pid);
       if (job) {
-          job->state = ST;
-          printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
+        job->state = ST;
+        printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
       }
     }
+  }
+
+  if (verbose && pid < 0 && errno != ECHILD) {
+    printf("sigchld_handler: waitpid error: %s\n", strerror(errno));
   }
   
   errno = old_errno;
