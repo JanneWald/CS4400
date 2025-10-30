@@ -268,7 +268,8 @@ void eval(char *cmdline)
     sigprocmask(SIG_SETMASK, &prev_one, NULL);
     
     // Fork second child (reads from pipe)
-    if ((pid = fork()) == 0) {
+    pid_t pid2;
+    if ((pid2 = fork()) == 0) {
       /* Second child process */
       sigprocmask(SIG_SETMASK, &prev_one, NULL);
       setpgid(0, 0);
@@ -290,9 +291,10 @@ void eval(char *cmdline)
     close(pipefd[1]);
     
     sigprocmask(SIG_BLOCK, &mask_all, NULL);
-    addjob(jobs, pid, bg ? BG : FG, cmdline);
+    addjob(jobs, pid2, bg ? BG : FG, cmdline);
     sigprocmask(SIG_SETMASK, &prev_one, NULL);
-        
+    
+    waitfg(pid2);
   }
   else {  
     /* Fork child process */
