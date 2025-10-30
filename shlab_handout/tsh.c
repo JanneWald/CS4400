@@ -271,7 +271,7 @@ void eval(char *cmdline)
           printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
       }
   }
-  
+
   // End TODO ====================================================
   return;
 }
@@ -417,7 +417,13 @@ void do_fg(int jid)
  */
 void waitfg(pid_t pid)
 {
-  printf("waitfg for pid %d (not implemented yet)\n", pid);
+  sigset_t mask;
+  sigemptyset(&mask);
+  
+  // Wait til the fg job is gone in job list
+  while (getjobpid(jobs, pid) != NULL) {
+    sigsuspend(&mask);
+  }
 }
 
 /*****************
@@ -433,7 +439,29 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig) 
 {
-  return;
+  int old_errno = errno;
+  pid_t pid;
+  int status;
+  
+  while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
+      
+    if (WIFEXITED(status)) { // Normal termination
+      deletejob(jobs, pid);
+    }
+    else if (WIFSIGNALED(status)) { // Terminated by signal (ctrlc)
+      printf("Job %d terminated by signal %d\n", pid2jid(pid), WTERMSIG(status));
+      deletejob(jobs, pid);
+    }
+    else if (WIFSTOPPED(status)) {// Stopped by signal (ctrlz)
+      struct job_t *job = getjobpid(jobs, pid);
+      if (job) {
+          job->state = ST;
+          printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
+      }
+    }
+  }
+  
+  errno = old_errno;
 }
 
 /* 
@@ -443,7 +471,20 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig) 
 {
-  return;
+  pid_t fg_pid = -1;
+  
+  // Get foreground job
+  for (int i = 0; i < MAXJOBS; i++) {
+    if (jobs[i].state == FG) {
+      fg_pid = jobs[i].pid;
+      break;
+    }
+  }
+  
+  // Send SIGINT to foreground process group
+  if (fg_pid > 0) {
+    kill(-fg_pid, SIGINT);
+  }
 }
 
 /*
@@ -453,7 +494,20 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig) 
 {
-  return;
+  pid_t fg_pid = -1;
+  
+  /* Find the foreground job */
+  for (int i = 0; i < MAXJOBS; i++) {
+    if (jobs[i].state == FG) {
+      fg_pid = jobs[i].pid;
+      break;
+    }
+  }
+  
+  // Send SIGTSTP to foreground process group
+  if (fg_pid > 0) {
+    kill(-fg_pid, SIGTSTP);
+  }
 }
 
 /*********************
