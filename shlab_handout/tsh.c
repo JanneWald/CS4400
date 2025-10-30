@@ -401,7 +401,19 @@ int builtin_cmd(char **argv)
  */
 void do_bg(int jid) 
 {
-  printf("bg command for job %d (not implemented yet)\n", jid);
+  struct job_t *job = getjobjid(jobs, jid);
+  
+  if (job == NULL) {
+    printf("%%(%d): No such job\n", jid);
+    return;
+  }
+  
+  // Resume the job with SIGCONT
+  kill(-(job->pid), SIGCONT);
+  
+  // Change state to bg 
+  job->state = BG;
+  printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
 }
 
 /* 
@@ -409,7 +421,20 @@ void do_bg(int jid)
  */
 void do_fg(int jid) 
 {
-  printf("fg command for job %d (not implemented yet)\n", jid);
+  struct job_t *job = getjobjid(jobs, jid);
+  
+  if (job == NULL) {
+    printf("%%(%d): No such job\n", jid);
+    return;
+  }
+  
+  // Resume the job with SIGCONT
+  kill(-(job->pid), SIGCONT);
+  
+  // Change state to fg
+  job->state = FG;
+  
+  waitfg(job->pid);
 }
 
 /* 
@@ -417,13 +442,10 @@ void do_fg(int jid)
  */
 void waitfg(pid_t pid)
 {
-  sigset_t mask;
-  sigemptyset(&mask);
+  struct job_t *job;
   
-  /* Wait only for the specific foreground job to finish */
-  while (getjobpid(jobs, pid) != NULL) {
-      /* Use a more careful approach - sleep briefly */
-      usleep(10000);  /* 10ms sleep */
+  while ((job = getjobpid(jobs, pid)) != NULL && job->state == FG) {
+      usleep(100000);  // Sleep 100ms and check again
   }
 }
 
@@ -458,10 +480,11 @@ void sigchld_handler(int sig)
       deletejob(jobs, pid);
     }
     else if (WIFSTOPPED(status)) {// Stopped by signal (ctrlz)
+      /* Stopped by signal (e.g., ctrl-z) */
       struct job_t *job = getjobpid(jobs, pid);
       if (job) {
-        job->state = ST;
-        printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
+          job->state = ST;  // Change state to STOPPED
+          printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
       }
     }
   }
