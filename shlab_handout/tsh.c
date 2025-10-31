@@ -465,7 +465,7 @@ void do_bg(int jid)
   struct job_t *job = getjobjid(jobs, jid);
   
   if (job == NULL) {
-    printf("%%(%d): No such job\n", jid);
+    printf("%%%d: No such job\n", jid);
     return;
   }
   
@@ -485,7 +485,7 @@ void do_fg(int jid)
   struct job_t *job = getjobjid(jobs, jid);
   
   if (job == NULL) {
-    printf("%%(%d): No such job\n", jid);
+    printf("%%%d: No such job\n", jid);
     return;
   }
   
