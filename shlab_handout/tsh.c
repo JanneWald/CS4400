@@ -233,9 +233,9 @@ void eval(char *cmdline)
 
   // Check if it's a built-in command
   if (builtin_cmd(argv1)) {
-    return;  // Already handled command
+    return;  // Already did that
   }
-  /* BLOCK SIGCHLD to avoid race condition */
+  // BLOCK SIGCHLD to avoid race condition Hint 9
   sigprocmask(SIG_BLOCK, &mask_one, &prev_one);
 
   if (cmd2 != NULL) { // Pipe Case :(    
@@ -244,18 +244,15 @@ void eval(char *cmdline)
       unix_error("pipe error");
     }
     
-    /* Fork first child (writes to pipe) */
-    if ((pid = fork()) == 0) {
-      /* First child process */
+    
+    if ((pid = fork()) == 0) { // Fork first child 
       sigprocmask(SIG_SETMASK, &prev_one, NULL);
       setpgid(0, 0);
       
-      // Set up pipe: stdout -> pipe write end
-      close(pipefd[0]);  // Close read end
-      dup2(pipefd[1], STDOUT_FILENO);  // stdout -> pipe
-      close(pipefd[1]);  // Close original write end
+      close(pipefd[0]);  // close read end
+      dup2(pipefd[1], STDOUT_FILENO);  // standard out to  pipe
+      close(pipefd[1]);  // close original write end
       
-      // Execute first command
       if (execve(argv1[0], argv1, environ) < 0) {
         printf("%s: Command not found\n", argv1[0]);
         exit(1);
@@ -267,69 +264,57 @@ void eval(char *cmdline)
     addjob(jobs, pid, bg ? BG : FG, cmdline);
     sigprocmask(SIG_SETMASK, &prev_one, NULL);
     
-    // Fork second child (reads from pipe)
     pid_t pid2;
-    if ((pid2 = fork()) == 0) {
-      /* Second child process */
+    if ((pid2 = fork()) == 0) { // Fork second child
       sigprocmask(SIG_SETMASK, &prev_one, NULL);
       setpgid(0, 0);
       
-      // Set up pipe: stdin -> pipe read end  
-      close(pipefd[1]);  // Close write end
-      dup2(pipefd[0], STDIN_FILENO);   // stdin -> pipe
-      close(pipefd[0]);  // Close original read end
+      close(pipefd[1]);  // close write end
+      dup2(pipefd[0], STDIN_FILENO);   // standard IN to pipe
+      close(pipefd[0]);  // close original read end
       
-      // Execute second command
       if (execve(argv2[0], argv2, environ) < 0) {
         printf("%s: Command not found\n", argv2[0]);
         exit(1);
       }
     }
     
-    /* Parent: Close pipe ends and add second job */
     close(pipefd[0]);
     close(pipefd[1]);
-    
+
     sigprocmask(SIG_BLOCK, &mask_all, NULL);
     addjob(jobs, pid2, bg ? BG : FG, cmdline);
     sigprocmask(SIG_SETMASK, &prev_one, NULL);
     
     waitfg(pid2);
   }
-  else {  
-    /* Fork child process */
-    if ((pid = fork()) == 0) {
-        /* Child process */
-        
-        /* Unblock SIGCHLD in child */
-        sigprocmask(SIG_SETMASK, &prev_one, NULL);
-        
-        /* Put child in its own process group */
-        setpgid(0, 0);
-        
-        /* Execute the command */
-        if (execve(argv1[0], argv1, environ) < 0) {
-            printf("%s: Command not found\n", argv1[0]);
-            exit(1);
-        }
-    }
-    
-    /* Parent process */
-    
-    /* Add job to job list */
+  else { // Single command case :) this was so much easier
+    if ((pid = fork()) == 0) {       
+      // Unblock SIGCHLD in child
+      sigprocmask(SIG_SETMASK, &prev_one, NULL); // Other half of hint 9
+      
+      // child in its own process group
+      setpgid(0, 0);
+      
+      if (execve(argv1[0], argv1, environ) < 0) {
+        printf("%s: Command not found\n", argv1[0]);
+        exit(1);
+      }
+    }    
+    // Adding job
     sigprocmask(SIG_BLOCK, &mask_all, NULL);
     addjob(jobs, pid, bg ? BG : FG, cmdline);
     sigprocmask(SIG_SETMASK, &prev_one, NULL);
 
-    /* Wait for foreground job if needed */
+    // Wait or print bg job info
     if (!bg) {
-        waitfg(pid);
-    } else {
-        /* Background job - print job info */
-        struct job_t *job = getjobpid(jobs, pid);
-        if (job) {
-            printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
-        }
+      waitfg(pid);
+    } 
+    else {
+      struct job_t *job = getjobpid(jobs, pid);
+      if (job) {
+        printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
+      }
     }
   }
 
@@ -423,7 +408,7 @@ int builtin_cmd(char **argv)
     listjobs(jobs);
     return 1;
   }
-  // End TODO
+  // End TODO ==================
 
   if (!strcmp(cmd, "bg") || !strcmp(cmd, "fg")) { /* bg and fg commands */
       
@@ -469,10 +454,9 @@ void do_bg(int jid)
     return;
   }
   
-  // Resume the job with SIGCONT
+  // Resume job w/ SIGCONT
   kill(-(job->pid), SIGCONT);
   
-  // Change state to bg 
   job->state = BG;
   printf("[%d] (%d) %s", job->jid, job->pid, job->cmdline);
 }
@@ -489,12 +473,10 @@ void do_fg(int jid)
     return;
   }
   
-  // Resume the job with SIGCONT
+  // Resume job w/ SIGCONT
   kill(-(job->pid), SIGCONT);
   
-  // Change state to fg
   job->state = FG;
-  
   waitfg(job->pid);
 }
 
@@ -506,7 +488,7 @@ void waitfg(pid_t pid)
   struct job_t *job;
   
   while ((job = getjobpid(jobs, pid)) != NULL && job->state == FG) {
-      usleep(100000);  // Sleep 100ms and check again
+    usleep(100000);
   }
 }
 
@@ -536,11 +518,11 @@ void sigchld_handler(int sig)
       if (verbose) printf("sigchld_handler: normal exit\n");
       deletejob(jobs, pid);
     }
-    else if (WIFSIGNALED(status)) { // Terminated by signal (ctrlc)
+    else if (WIFSIGNALED(status)) { // Terminated by signal ctrlc
       printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
       deletejob(jobs, pid);
     }
-    else if (WIFSTOPPED(status)) {// Stopped by signal (ctrlz)
+    else if (WIFSTOPPED(status)) {// Stopped by signal ctrlz
       /* Stopped by signal (e.g., ctrl-z) */
       struct job_t *job = getjobpid(jobs, pid);
       if (job) {
@@ -565,7 +547,7 @@ void sigint_handler(int sig)
 {
   pid_t fg_pid = -1;
   
-  // Get foreground job
+  // find fg job
   for (int i = 0; i < MAXJOBS; i++) {
     if (jobs[i].state == FG) {
       fg_pid = jobs[i].pid;
@@ -573,7 +555,7 @@ void sigint_handler(int sig)
     }
   }
   
-  // Send SIGINT to foreground process group
+  // send SIGINT to fg group
   if (fg_pid > 0) {
     kill(-fg_pid, SIGINT);
   }
@@ -588,7 +570,7 @@ void sigtstp_handler(int sig)
 {
   pid_t fg_pid = -1;
   
-  /* Find the foreground job */
+  // find fg job
   for (int i = 0; i < MAXJOBS; i++) {
     if (jobs[i].state == FG) {
       fg_pid = jobs[i].pid;
@@ -596,7 +578,7 @@ void sigtstp_handler(int sig)
     }
   }
   
-  // Send SIGTSTP to foreground process group
+  // send SIGTSTP to fg group
   if (fg_pid > 0) {
     kill(-fg_pid, SIGTSTP);
   }
