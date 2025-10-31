@@ -537,16 +537,15 @@ void sigchld_handler(int sig)
       deletejob(jobs, pid);
     }
     else if (WIFSIGNALED(status)) { // Terminated by signal (ctrlc)
-      printf("Job %d terminated by signal %d\n", pid2jid(pid), WTERMSIG(status));
+      printf("Job [%d] (%d) terminated by signal %d\n", pid2jid(pid), pid, WTERMSIG(status));
       deletejob(jobs, pid);
     }
     else if (WIFSTOPPED(status)) {// Stopped by signal (ctrlz)
       /* Stopped by signal (e.g., ctrl-z) */
       struct job_t *job = getjobpid(jobs, pid);
       if (job) {
-          job->state = ST;  // Change state to STOPPED
-          printf("Job %d stopped by signal %d\n", job->jid, WSTOPSIG(status));
-      }
+        job->state = ST;  // Change state to STOPPED
+        printf("Job [%d] (%d) stopped by signal %d\n", job->jid, job->pid, WSTOPSIG(status));      }
     }
   }
 

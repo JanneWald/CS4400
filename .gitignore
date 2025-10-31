@@ -10,3 +10,8 @@ shlab_handout/mysplit
 shlab_handout/myspin
 shlab_handout/mystop
 shlab_handout/tsh
+shlab_handout/actual_output.txt
+.gitignore
+shlab_handout/mine.txt
+shlab_handout/ref.txt
+shlab_handout/expected_output.txt
