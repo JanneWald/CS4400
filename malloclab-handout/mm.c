@@ -151,9 +151,6 @@ void mm_free(void *ptr)
     coalesce(ptr);
 }
 
-/*
- * extend_heap - Extend heap with a new free block.
- */
 static void *extend_heap(size_t size)
 {
     char *bp;
@@ -164,28 +161,31 @@ static void *extend_heap(size_t size)
     
     if (DEBUG) printf("DEBUG: mem_map returned %p\n", bp);
     
-    /* SIMPLE FIX: Put header at start, payload right after */
-    char *header = bp;
-    char *payload = bp + WSIZE;
-    
-    /* Ensure payload is 16-byte aligned */
-    payload = (char *)ALIGN((size_t)payload);
-    
-    /* Calculate actual block size from aligned payload to end */
+    char *payload = (char *)ALIGN((size_t)(bp + WSIZE));
     size_t block_size = size - (payload - bp);
-    
-    /* Align the block size */
     block_size = ALIGN(block_size);
     
-    /* Set the header */
-    PUT(header, PACK(block_size, 0));
+    PUT(payload - WSIZE, PACK(block_size, 0));
     
-    if (DEBUG) printf("DEBUG: set header at %p to size %zu\n", header, block_size);
-    if (DEBUG) printf("DEBUG: payload at %p (aligned: %d)\n", payload, is_aligned(payload));
+    if (DEBUG) printf("DEBUG: set header at %p to size %zu\n", payload - WSIZE, block_size);
     
-    /* Initialize free list pointers */
+    /* DEBUG: Check memory around the block */
+    if (DEBUG) {
+        printf("DEBUG: Memory at header-8: %p\n", (void *)*(size_t *)(payload - WSIZE - 8));
+        printf("DEBUG: Memory at header: %zu\n", GET_SIZE(payload - WSIZE));
+        printf("DEBUG: Memory at payload: %p\n", (void *)*(size_t *)payload);
+        printf("DEBUG: Memory at payload+8: %p\n", (void *)*(size_t *)(payload + 8));
+    }
+    
     SET_NEXT(payload, NULL);
     SET_PREV(payload, NULL);
+    
+    /* DEBUG: Check if pointers corrupted the header */
+    if (DEBUG) {
+        printf("DEBUG: After setting pointers - header: %zu\n", GET_SIZE(payload - WSIZE));
+        printf("DEBUG: next pointer at %p: %p\n", payload, GET_NEXT(payload));
+        printf("DEBUG: prev pointer at %p: %p\n", payload + WSIZE, GET_PREV(payload));
+    }
     
     insert_free_block(payload);
     return payload;
