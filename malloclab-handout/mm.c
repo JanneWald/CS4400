@@ -26,6 +26,19 @@
 /* rounds up to the nearest multiple of mem_pagesize() */
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
+// Global variables
+static void *free_list_head = NULL;
+static void *heap_start = NULL;
+
+// Block macros
+#define GET_SIZE(p)  (*(size_t *)(p) & ~0x7)
+#define GET_ALLOC(p) (*(size_t *)(p) & 0x1)
+#define PACK(size, alloc) ((size) | (alloc))
+
+#define NEXT_BLOCK(p) ((char *)(p) + GET_SIZE(p))
+#define PREV_BLOCK(p) ((char *)(p) - GET_SIZE((char *)(p) - 8))
+
+
 void *current_avail = NULL;
 int current_avail_size = 0;
 

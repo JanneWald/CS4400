@@ -17,3 +17,5 @@ shlab_handout/ref.txt
 shlab_handout/expected_output.txt
 malloc-handout.zip
 malloclab-handout/traces
+malloclab-handout/mdriver
+malloclab-handout/.vscode/settings.json
