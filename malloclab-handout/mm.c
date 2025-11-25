@@ -14,6 +14,9 @@
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
 
+/* rounds up to the nearest multiple of mem_pagesize() */
+#define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
+
 /* Basic constants */
 #define WSIZE 4        /* Word size (bytes) */
 #define DSIZE 8        /* Double word size (bytes) */
@@ -105,8 +108,9 @@ void *mm_malloc(size_t size)
     }
     
     debug_print("no fit found, extending heap", NULL);
-    /* Extend heap if no fit */
+    /* Extend heap if no fit - ensure page alignment */
     size_t extendsize = (asize > CHUNKSIZE) ? asize : CHUNKSIZE;
+    extendsize = PAGE_ALIGN(extendsize + ALIGNMENT); /* Add padding and page align */
     if (DEBUG) printf("DEBUG: extending heap by %zu bytes\n", extendsize);
     
     if ((bp = extend_heap(extendsize)) == NULL)
@@ -146,8 +150,8 @@ void mm_free(void *ptr)
  */
 static void *extend_heap(size_t size)
 {
-    /* Request extra space to ensure we can create 16-byte aligned payload */
-    size_t asize = ALIGN(size + ALIGNMENT);
+    /* Request is already page-aligned from mm_malloc */
+    size_t asize = size;
     char *bp;
     
     if (DEBUG) printf("DEBUG: mem_map requesting %zu bytes\n", asize);
