@@ -120,7 +120,14 @@ void *mm_malloc(size_t size)
     if ((bp = extend_heap(extendsize)) == NULL)
         return NULL;
     
+    /* EXTRA DEBUG: Check the block right after extend_heap returns */
+    if (DEBUG) {
+        printf("DEBUG: about to debug_print block at %p\n", bp);
+        printf("DEBUG: HDRP(bp) = %p\n", HDRP(bp));
+        printf("DEBUG: reading header at %p: %zu\n", HDRP(bp), GET_SIZE(HDRP(bp)));
+    }
     debug_print("extended heap, new block", bp);
+    
     place(bp, asize);
     debug_print("after place, returning", bp);
     if (DEBUG) printf("DEBUG: returning aligned payload: %p (aligned: %d)\n", bp, is_aligned(bp));
@@ -151,6 +158,9 @@ void mm_free(void *ptr)
     coalesce(ptr);
 }
 
+/*
+ * extend_heap - Extend heap with a new free block.
+ */
 static void *extend_heap(size_t size)
 {
     char *bp;
@@ -161,13 +171,24 @@ static void *extend_heap(size_t size)
     
     if (DEBUG) printf("DEBUG: mem_map returned %p\n", bp);
     
+    /* The payload must be 16-byte aligned AND have the header exactly WSIZE before it */
     char *payload = (char *)ALIGN((size_t)(bp + WSIZE));
-    size_t block_size = size - (payload - bp);
-    block_size = ALIGN(block_size);
     
+    /* Calculate how much space we actually have for the block */
+    size_t block_size = size - (payload - bp);
+    block_size = ALIGN(block_size);  /* Ensure aligned size */
+    
+    /* SANITY CHECK: Make sure block is large enough for header + pointers */
+    if (block_size < MIN_BLOCK_SIZE) {
+        if (DEBUG) printf("DEBUG: ERROR: block size %zu too small, need %zu\n", block_size, MIN_BLOCK_SIZE);
+        return NULL;
+    }
+    
+    /* Set the header at the correct location (payload - WSIZE) */
     PUT(payload - WSIZE, PACK(block_size, 0));
     
     if (DEBUG) printf("DEBUG: set header at %p to size %zu\n", payload - WSIZE, block_size);
+    if (DEBUG) printf("DEBUG: payload at %p (aligned: %d)\n", payload, is_aligned(payload));
     
     /* DEBUG: Check memory around the block */
     if (DEBUG) {
@@ -177,6 +198,7 @@ static void *extend_heap(size_t size)
         printf("DEBUG: Memory at payload+8: %p\n", (void *)*(size_t *)(payload + 8));
     }
     
+    /* Initialize free list pointers */
     SET_NEXT(payload, NULL);
     SET_PREV(payload, NULL);
     
