@@ -58,7 +58,14 @@ static void debug_print(const char *msg, void *bp) {
     if (DEBUG) {
         printf("DEBUG: %s", msg);
         if (bp) {
-            printf(" at %p, size=%zu, alloc=%d", bp, GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+            size_t size = GET_SIZE(HDRP(bp));
+            int alloc = GET_ALLOC(HDRP(bp));
+            printf(" at %p, size=%zu, alloc=%d", bp, size, alloc);
+            
+            /* Sanity check - if size is ridiculous, something is wrong */
+            if (size > 1000000) {
+                printf(" [INVALID SIZE!]");
+            }
         }
         printf("\n");
     }
@@ -90,8 +97,7 @@ void *mm_malloc(size_t size)
     if (size == 0) return NULL;
     
     /* Adjust block size to include overhead and ensure 16-byte alignment */
-    size_t asize = ALIGN(size);
-    asize += WSIZE;  /* Add space for header */
+    size_t asize = ALIGN(size + WSIZE);
     if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
     
     if (DEBUG) printf("DEBUG: adjusted size = %zu\n", asize);
@@ -135,11 +141,13 @@ void mm_free(void *ptr)
     
     size_t size = GET_SIZE(HDRP(ptr));
     if (DEBUG) printf("DEBUG: freeing block size=%zu\n", size);
-    PUT(HDRP(ptr), PACK(size, 0));  /* Mark as free */
     
-    /* Initialize free list pointers */
+    /* Clear the free list pointers first to avoid corruption */
     SET_NEXT(ptr, NULL);
     SET_PREV(ptr, NULL);
+    
+    /* Mark as free */
+    PUT(HDRP(ptr), PACK(size, 0));
     
     insert_free_block(ptr);
     coalesce(ptr);
@@ -169,6 +177,9 @@ static void *extend_heap(size_t size)
     /* Calculate the actual usable size (from header to end of mapped memory) */
     size_t usable_size = asize - ((char *)header - bp);
     
+    /* Make sure usable_size is aligned */
+    usable_size = ALIGN(usable_size);
+    
     /* Initialize block header */
     PUT(header, PACK(usable_size, 0));
     if (DEBUG) printf("DEBUG: set header at %p to size %zu, alloc 0\n", header, usable_size);
@@ -194,13 +205,21 @@ static void *next_block(void *bp) {
 }
 
 /*
- * coalesce - Simple coalescing
+ * coalesce - Simple coalescing with bounds checking
  */
 static void *coalesce(void *bp)
 {
     debug_print("coalesce called", bp);
     size_t size = GET_SIZE(HDRP(bp));
+    
+    /* Only coalesce with next block if it's reasonable */
     void *next = next_block(bp);
+    
+    /* Basic sanity check - next should be after current block */
+    if (next <= bp) {
+        if (DEBUG) printf("DEBUG: invalid next block, skipping coalesce\n");
+        return bp;
+    }
     
     if (DEBUG) printf("DEBUG: checking next block at %p\n", next);
     
@@ -230,8 +249,17 @@ static void *find_fit(size_t asize)
     
     void *bp = free_list_head;
     while (bp != NULL) {
-        if (DEBUG) printf("DEBUG: checking block %p, size=%zu\n", bp, GET_SIZE(HDRP(bp)));
-        if (GET_SIZE(HDRP(bp)) >= asize) {
+        size_t block_size = GET_SIZE(HDRP(bp));
+        if (DEBUG) printf("DEBUG: checking block %p, size=%zu\n", bp, block_size);
+        
+        /* Sanity check - skip blocks with invalid sizes */
+        if (block_size < MIN_BLOCK_SIZE || block_size > 1000000) {
+            if (DEBUG) printf("DEBUG: skipping block with invalid size\n");
+            bp = GET_NEXT(bp);
+            continue;
+        }
+        
+        if (block_size >= asize) {
             return bp;
         }
         bp = GET_NEXT(bp);
@@ -246,10 +274,10 @@ static void *find_fit(size_t asize)
 static void place(void *bp, size_t asize)
 {
     debug_print("place called", bp);
-    if (DEBUG) printf("DEBUG: placing block of size %zu into block of size %zu\n", 
-           asize, GET_SIZE(HDRP(bp)));
-    
     size_t total_size = GET_SIZE(HDRP(bp));
+    
+    if (DEBUG) printf("DEBUG: placing block of size %zu into block of size %zu\n", 
+           asize, total_size);
     
     debug_print("removing from free list", bp);
     remove_free_block(bp);
@@ -257,13 +285,17 @@ static void place(void *bp, size_t asize)
     /* Only split if there's enough space for a new free block */
     if (total_size >= asize + MIN_BLOCK_SIZE) {
         if (DEBUG) printf("DEBUG: splitting block\n");
-        /* Split block */
+        
+        /* Update current block header */
         PUT(HDRP(bp), PACK(asize, 1));
         
-        void *new_block = next_block(bp);
+        /* Create new free block from remainder */
+        void *new_block = (char *)bp + asize;
         size_t remainder = total_size - asize;
+        
         if (DEBUG) printf("DEBUG: creating new free block at %p, size %zu\n", new_block, remainder);
         
+        /* Initialize new block header */
         PUT(HDRP(new_block), PACK(remainder, 0));
         
         /* Initialize free list pointers for new block */
