@@ -152,7 +152,7 @@ void mm_free(void *ptr)
 }
 
 /*
- * extend_heap - SIMPLIFIED: Extend heap with a new free block.
+ * extend_heap - Extend heap with a new free block.
  */
 static void *extend_heap(size_t size)
 {
@@ -164,20 +164,23 @@ static void *extend_heap(size_t size)
     
     if (DEBUG) printf("DEBUG: mem_map returned %p\n", bp);
     
-    /* SIMPLE APPROACH: Use the entire mapped region as one block */
-    /* The payload starts at a 16-byte aligned address within the first 16 bytes */
-    char *payload = (char *)ALIGN((size_t)(bp + WSIZE));
+    /* SIMPLE FIX: Put header at start, payload right after */
+    char *header = bp;
+    char *payload = bp + WSIZE;
     
-    /* Calculate how much space we have for the actual block */
+    /* Ensure payload is 16-byte aligned */
+    payload = (char *)ALIGN((size_t)payload);
+    
+    /* Calculate actual block size from aligned payload to end */
     size_t block_size = size - (payload - bp);
     
-    /* Make sure block_size is aligned */
+    /* Align the block size */
     block_size = ALIGN(block_size);
     
-    /* Set header */
-    PUT(payload - WSIZE, PACK(block_size, 0));
+    /* Set the header */
+    PUT(header, PACK(block_size, 0));
     
-    if (DEBUG) printf("DEBUG: set header at %p to size %zu\n", payload - WSIZE, block_size);
+    if (DEBUG) printf("DEBUG: set header at %p to size %zu\n", header, block_size);
     if (DEBUG) printf("DEBUG: payload at %p (aligned: %d)\n", payload, is_aligned(payload));
     
     /* Initialize free list pointers */
