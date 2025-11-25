@@ -1,306 +1,314 @@
 /*
- * mm.c - Implicit free-list allocator with safe chunk handling
+ * mm-naive.c - The least memory-efficient malloc package.
+ * 
+ * In this naive approach, a block is allocated by allocating a
+ * new page as needed.  A block is pure payload. There are no headers or
+ * footers.  Blocks are never coalesced or reused.
  *
- * - Uses size_t headers/footers (no block_header struct)
- * - 16-byte alignment
- * - Each mem_map()'d chunk stores metadata at its start so we can detect boundaries
- * - First-fit implicit free list scanning per chunk
- * - Coalescing & splitting inside chunk
+ * For my approach I decided to use an explicit free list (implemented via a doubly
+ * linked list) for keeping track of free blocks. A block itself is header + payload + footer.
+ * When allocating a block we check if there's an available size in the free list, if there
+ * is then we remove that block from the list. Blocks are coalesced and split when possible.
+ * Pages also get unmapped when it can be.
  *
- * Notes:
- * - mem_map() is always called with a PAGE_ALIGN(...) size
- * - No global compound static arrays; only scalar globals (chunk_list_head)
  */
-
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
+#include <unistd.h>
 #include <string.h>
-#include <stdint.h>
-#include <stdarg.h>
 
 #include "mm.h"
 #include "memlib.h"
 
-/* Debug flag */
-
-
-/* ---------- Alignment and basic sizes ---------- */
+/* always use 16-byte alignment */
 #define ALIGNMENT 16
-#define ALIGN(size) (((size) + (ALIGNMENT - 1)) & ~(ALIGNMENT - 1))
 
-/* size_t header/footer size (aligned) */
-#define SIZE_T_SZ (ALIGN(sizeof(size_t)))
-#define OVERHEAD (2 * SIZE_T_SZ)            /* header + footer */
-#define MIN_BLOCK_SIZE (OVERHEAD + 2 * sizeof(void *)) /* minimum free block payload holds two pointers */
+/* rounds up to the nearest multiple of ALIGNMENT */
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
 
-/* Page align helper for mem_map */
-#define PAGE_ALIGN(size) (((size) + (mem_pagesize() - 1)) & ~(mem_pagesize() - 1))
+/* rounds up to the nearest multiple of mem_pagesize() */
+#define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
-/* ---------- Header/footer macros (size_t based) ---------- */
-/* Given payload pointer bp, header is SIZE_T_SZ bytes before payload */
-#define HDRP(bp) ((char *)(bp) - SIZE_T_SZ)
-#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - OVERHEAD)
+#define BLOCK_OVERHEAD 16
 
-/* Given payload pointer bp, next/prev physical blocks payload pointers */
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - SIZE_T_SZ)))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - OVERHEAD)))
+// This assumes you have a struct or typedef called "block_header" and "block_footer"
+#define OVERHEAD (sizeof(block_header)+sizeof(block_footer))
 
-/* Read/write header/footer (stored as size_t) */
-#define GET(p) (*(size_t *)(p))
-#define PUT(p, val) (*(size_t *)(p) = (val))
+// Given a payload pointer, get the header or footer pointer
+#define HDRP(bp) ((char *)(bp) - sizeof(block_header))
+#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp))-OVERHEAD)
 
-/* Pack size and allocation bit */
+// Given a payload pointer, get the next or previous payload pointer
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)))
+#define PREV_BLKP(bp) ((char *)(bp)-GET_SIZE((char*)(bp)-OVERHEAD))
+
+// ******These macros assume you are using a size_t for headers and footers******
+//
+// Given a pointer to a header, get or set its value
+#define GET(p) (*(size_t*)(p))
+#define PUT(p, val) (*(size_t*)(p) = (val))
+
+// Combine a size and alloc bit
 #define PACK(size, alloc) ((size) | (alloc))
 
-/* Extract size and allocation */
-#define GET_SIZE(p) (GET(p) & ~(size_t)(ALIGNMENT - 1))
-#define GET_ALLOC(p) (GET(p) & (size_t)0x1)
+// Given a header pointer, get the alloc or size
+#define GET_ALLOC(p) (GET(p) & 0x1)
+#define GET_SIZE(p) (GET(p) & ~0xF)
 
-/* ---------- Chunk metadata layout ----------
-   Each mem_map'd chunk starts with CHUNK_META_SIZE bytes:
-   [ prev_chunk_ptr (void*) ][ next_chunk_ptr (void*) ][ chunk_size (size_t) ]
-   CHUNK_META_SIZE is aligned to ALIGNMENT so payload after it is 16-byte aligned.
-*/
-#define CHUNK_META_RAW (2 * sizeof(void *) + sizeof(size_t))
-#define CHUNK_META_SIZE (ALIGN(CHUNK_META_RAW))
-#define CHUNK_PREV(ptr)   (*(void **)((char *)(ptr) + 0))
-#define CHUNK_NEXT(ptr)   (*(void **)((char *)(ptr) + sizeof(void *)))
-#define CHUNK_SIZE_FIELD(ptr) (*(size_t *)((char *)(ptr) + 2 * sizeof(void *)))
+#define MAX(x, y) ((x) > (y) ? (x):(y))
 
-/* ---------- Global state ---------- */
-/* Head of linked list of chunks (pointer to chunk start returned by mem_map) */
-static void *chunk_list_head = NULL;
+// explicit free list
+typedef struct list_node{
+    struct list_node *next;
+    struct list_node *prev;
+} list_node;
 
-/* ---------- Debug printing ---------- */
-static void dbg_printf(const char *fmt, ...)
-{
-#if DEBUG
-    va_list ap;
-    va_start(ap, fmt);
-    vprintf(fmt, ap);
-    va_end(ap);
-#endif
-}
+typedef size_t block_header;
+typedef size_t block_footer;
 
-/* ---------- Helper: chunk management ---------- */
+// start of linked list
+list_node* head = NULL;
 
-/* Insert chunk into chunk_list (front) and store its size */
-static void add_chunk(void *chunk_start, size_t chunk_size)
-{
-    CHUNK_PREV(chunk_start) = NULL;
-    CHUNK_NEXT(chunk_start) = chunk_list_head;
-    CHUNK_SIZE_FIELD(chunk_start) = chunk_size;
+size_t multiplier = 2;
 
-    if (chunk_list_head != NULL) {
-        CHUNK_PREV(chunk_list_head) = chunk_start;
+// adds to the linked list
+void linked_list_add(list_node* new_head){
+    if(head == NULL){
+        head = new_head;
+        head->next = NULL;
+        head->prev = NULL;
     }
-    chunk_list_head = chunk_start;
-}
-
-/* Return 1 if pointer p lies inside given chunk (payload region) */
-static int chunk_contains(void *chunk_start, void *p)
-{
-    if (chunk_start == NULL || p == NULL) return 0;
-    char *start = (char *)chunk_start + CHUNK_META_SIZE; /* first payload byte */
-    size_t csize = CHUNK_SIZE_FIELD(chunk_start);
-    char *end = (char *)chunk_start + csize; /* one past last byte */
-    return ((char *)p >= start) && ((char *)p < end);
-}
-
-/* Find the chunk that contains a payload pointer bp (returns chunk_start or NULL) */
-static void *find_chunk_for_bp(void *bp)
-{
-    void *c = chunk_list_head;
-    while (c != NULL) {
-        if (chunk_contains(c, bp)) return c;
-        c = CHUNK_NEXT(c);
+    else{
+        head->prev = new_head;
+        new_head->next = head;
+        head = new_head;
+        head->prev = NULL;
     }
-    return NULL;
 }
 
-/* ---------- Core: block helpers inside a chunk ---------- */
+// removes from the linked list
+void linked_list_remove(list_node* node){
+    list_node* node_prev = node->prev;
+    list_node* node_next = node->next;
 
-/* create a new chunk big enough to hold req_block_size (which includes overhead).
- * Returns 0 on success, -1 on failure.
- */
-static int create_chunk_for_block(size_t req_block_size)
-{
-    size_t pagesz = mem_pagesize();
+    // if node == head then the head is now equal to the node
+    if(node == head) {
+        head = node_next;
+    }
 
-    /* We need space for: CHUNK_META + req_block_size (free block) + Epilogue Header (SIZE_T_SZ)
-     * This guarantees the Epilogue doesn't fall on an unmapped page boundary.
-     */
-    size_t needed = CHUNK_META_SIZE + req_block_size + SIZE_T_SZ; 
-    
-    if (needed < pagesz) needed = pagesz;
-    size_t chunk_size = PAGE_ALIGN(needed);
+    // if prev != null then next of prev is next of node
+    if(node_prev != NULL){
+        node_prev->next = node_next;
+    }
 
-    void *chunk = mem_map(chunk_size);
-    if (chunk == NULL) return -1;
+    // if next != null then prev of next is prev of node
+    if(node_next != NULL){
+        node_next->prev = node_prev;
+    }
 
-    /* Write metadata at chunk start */
-    add_chunk(chunk, chunk_size);
-
-    /* payload start */
-    char *payload = (char *)chunk + CHUNK_META_SIZE;
-
-    /* The initial free block in this chunk spans payload..(chunk_end - Epilogue size) */
-    size_t block_size = chunk_size - CHUNK_META_SIZE - SIZE_T_SZ; /* Subtract Epilogue size */
-
-    /* place header and footer for the single free block */
-    PUT((char *)payload - SIZE_T_SZ, PACK(block_size, 0));                 /* header */
-    PUT((char *)payload + block_size - OVERHEAD, PACK(block_size, 0));     /* footer */
-
-    /* place epilogue header at chunk_end - SIZE_T_SZ (one-size header with alloc bit 1 and size 0) */
-    PUT((char *)chunk + chunk_size - SIZE_T_SZ, PACK(0, 1));
-
-    dbg_printf("create_chunk: chunk=%p chunk_size=%zu payload=%p block_size=%zu\n",
-               chunk, chunk_size, payload, block_size);
-
-    return 0;
+    return;
 }
 
-/* ---------- Finding a fit: scan chunks then blocks (first-fit) ---------- */
-static void *find_fit(size_t asize)
-{
-    void *c = chunk_list_head;
-    while (c != NULL) {
-        /* scan blocks in this chunk */
-        char *bp = (char *)c + CHUNK_META_SIZE; /* payload pointer of first block */
-        while (1) {
-            size_t h = GET_SIZE((char *)bp - SIZE_T_SZ);
-            if (h == 0) break; /* epilogue in this chunk */
-            if (!GET_ALLOC((char *)bp - SIZE_T_SZ) && h >= asize) {
-                dbg_printf("find_fit: chunk %p found block %p size %zu\n", c, bp, h);
-                return bp;
-            }
-            bp = (char *)bp + h;
-            /* ensure we don't step past chunk */
-            if (!chunk_contains(c, bp)) break;
+// finds a node in the linked list 
+list_node* linked_list_find(size_t requested_size){
+    list_node* current_node;
+    current_node = head;
+
+    while(current_node != NULL){
+        // Is the current block big enough? (Check this block's header)
+        if(GET_SIZE(HDRP((void*)(current_node))) >= requested_size) {
+            // Remove the current block from the free list
+            linked_list_remove(current_node);
+
+            // Return the found block
+            return current_node;
         }
-        c = CHUNK_NEXT(c);
+
+        // Didn't find a big enough block, keep looking
+        current_node = current_node->next;
     }
+
+    // If we didn't find a sufficiently-large free block, return 'NULL'
     return NULL;
 }
 
-/* ---------- Coalescing (only within same chunk) ---------- */
-static void *coalesce(void *bp)
-{
-    if (bp == NULL) return NULL;
+/* Request more memory by calling mem_map
+ * Initialize the new chunk of memory as applicable
+ * Update free list if applicable
+ */
+static void* extend(size_t s){
+    size_t requested_size = multiplier * PAGE_ALIGN(s+(OVERHEAD * 2));
+    if(multiplier < 16)
+        multiplier++;
+    void* new_page = mem_map(requested_size);
 
-    void *c = find_chunk_for_bp(bp);
-    if (c == NULL) return bp; /* shouldn't happen */
+    size_t* page_words = (size_t*)new_page;
+    size_t num_words = requested_size / sizeof(size_t);
 
-    size_t prev_alloc = 1;
-    size_t next_alloc = 1;
-    size_t size = GET_SIZE(HDRP(bp));
+    // Page prolog and terminator
+    page_words[0] = 0x1;
+    page_words[1] = PACK(BLOCK_OVERHEAD, 1);
+    page_words[2] = PACK(BLOCK_OVERHEAD, 1);
+    page_words[num_words - 1] = PACK(0, 1);
 
-    /* Prev block */
-    void *prev_bp = PREV_BLKP(bp);
-    if (chunk_contains(c, prev_bp)) {
-        prev_alloc = GET_ALLOC(FTRP(prev_bp));
-    }
+    // The new free block is the page body.
+    // Set the new free block's header and footer:
+    size_t free_block_size = requested_size - 4 * sizeof(size_t);
+    page_words[3] = PACK(free_block_size, 0);
+    page_words[num_words - 2] = PACK(free_block_size, 0);
 
-    /* Next block */
-    void *next_bp = NEXT_BLKP(bp);
-    if (chunk_contains(c, next_bp)) {
-        next_alloc = GET_ALLOC(HDRP(next_bp));
-    }
-
-    if (prev_alloc && next_alloc) {
-        /* nothing */
-    } else if (prev_alloc && !next_alloc) {
-        /* merge with next */
-        size += GET_SIZE(HDRP(next_bp));
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
-    } else if (!prev_alloc && next_alloc) {
-        /* merge with prev */
-        size += GET_SIZE(HDRP(prev_bp));
-        PUT(HDRP(prev_bp), PACK(size, 0));
-        PUT(FTRP(prev_bp), PACK(size, 0));
-        bp = prev_bp;
-    } else {
-        /* merge prev + current + next */
-        size += GET_SIZE(HDRP(prev_bp)) + GET_SIZE(HDRP(next_bp));
-        PUT(HDRP(prev_bp), PACK(size, 0));
-        PUT(FTRP(prev_bp), PACK(size, 0));
-        bp = prev_bp;
-    }
-    return bp;
+    return (void*)&page_words[4];
 }
 
-/* ---------- Place: mark allocated and split if leftover big enough ---------- */
-static void place(void *bp, size_t asize)
-{
-    size_t csize = GET_SIZE(HDRP(bp));
-    if (csize >= asize + MIN_BLOCK_SIZE) {
-        /* split */
-        PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp), PACK(asize, 1));
-        void *next_bp = NEXT_BLKP(bp);
-        size_t rsize = csize - asize;
-        PUT(HDRP(next_bp), PACK(rsize, 0));
-        PUT(FTRP(next_bp), PACK(rsize, 0));
-    } else {
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
-    }
-}
-
-/* ---------- mm_init ---------- */
+/* 
+ * mm_init - initialize the malloc package.
+ */
 int mm_init(void)
 {
-    chunk_list_head = NULL;
+    multiplier = 2;
+    head = NULL;
 
-    /* Create an initial chunk of one page */
-    if (create_chunk_for_block(mem_pagesize() - CHUNK_META_SIZE) == -1)
-        return -1;
-
+    extend(4090);
     return 0;
 }
 
-/* ---------- mm_malloc ---------- */
-void *mm_malloc(size_t size)
-{
-    if (size == 0) return NULL;
+/* Set a block to allocated
+ * Update block headers/footers as needed
+ * Update free list if applicable
+ * Split block if applicable
+ */
+static void* set_allocated(void* b, size_t size){
+    //size_t* page_words = (size_t*)b;
+    //page_words[1] = PACK(size, 1);
 
-    /* compute asize: include overhead and alignment, ensure at least MIN_BLOCK_SIZE */
-    size_t asize = ALIGN(size + OVERHEAD);
-    if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
+    size_t prev_size = GET_SIZE(HDRP(b));
+    size_t left_over = prev_size - size;
 
-    /* search for fit */
-    void *bp = find_fit(asize);
-    if (bp != NULL) {
-        place(bp, asize);
-        dbg_printf("mm_malloc: returning bp=%p\n", bp);
-        return bp;
+    //list_node* prev_node = ((list_node*)(b))->prev;
+    //list_node* next_node = ((list_node*)(b))->next;
+    
+    linked_list_remove((list_node*)(b));
+
+    // don't split
+    if(left_over < OVERHEAD + sizeof(list_node)){
+        PUT(HDRP(b), PACK(GET_SIZE(HDRP(b)), 1));
+        PUT(FTRP(b), PACK(GET_SIZE(FTRP(b)), 1));
+    }
+    else{
+        PUT(HDRP(b),PACK(size, 1));
+        PUT(FTRP(b),PACK(size, 1));
+
+        void* new_header = NEXT_BLKP(b);
+        PUT(HDRP(new_header), PACK(left_over, 0));
+        PUT(FTRP(new_header), PACK(left_over, 0));
+
+        linked_list_add((list_node*)(new_header));
     }
 
-    /* No fit -> create a new chunk that can hold asize */
-    if (create_chunk_for_block(asize) == -1) return NULL;
-
-    /* find again (should succeed) */
-    bp = find_fit(asize);
-    if (bp == NULL) return NULL;
-    place(bp, asize);
-    dbg_printf("mm_malloc after extend: returning bp=%p\n", bp);
-    return bp;
+    return b;
 }
 
-/* ---------- mm_free ---------- */
+/* 
+ * mm_malloc - Allocate a block by using bytes from current_avail,
+ *     grabbing a new page if necessary.
+ */
+void *mm_malloc(size_t size)
+{
+    size_t maxsize = MAX(size, sizeof(list_node));
+    // might have to change to size_t
+    size_t newsize = ALIGN(maxsize + BLOCK_OVERHEAD);
+
+    list_node* block;
+
+    block = linked_list_find(newsize);
+
+    // couldn't find anything of size
+    if(block == NULL){
+        // need a new page to allocate
+        block = extend(newsize);
+        set_allocated(block, newsize);
+    }
+    else{
+        block = set_allocated((void*)(block), newsize);
+    }
+    
+    return (void*)(block);
+}
+
+/* Coalesce a free block if applicable
+ * Returns pointer to new coalesced block
+ */
+static void* coalesce(void* bp){
+    // 4 cases for coalescing
+    // First case is when neither of its neighbors are free. So we just set the allocated bit to zero
+    // Second case is when the right neighbor is free. We combine both blocks into one and adjust the header and footer
+    // Third case is when the left neighbor is free. We update the left block's header and the current block's footer
+    // Fourth case is when the left and right blocks are free. We combine all three blocks and update the left block's header
+    // and the right block's footer
+
+    size_t ptr_size = GET_SIZE(HDRP(bp));
+    
+    void* new_block = bp;
+
+    void* left_neighbor = PREV_BLKP(bp);
+    void* right_neighbor = NEXT_BLKP(bp);
+
+    size_t left_neighbor_alloc = GET_ALLOC(HDRP(left_neighbor));
+    size_t right_neighbor_alloc = GET_ALLOC(HDRP(right_neighbor));
+
+    // When both neighbors are free
+    if(!left_neighbor_alloc && !right_neighbor_alloc){
+        size_t new_size = GET_SIZE(HDRP(left_neighbor)) + ptr_size + GET_SIZE(HDRP(right_neighbor));
+        linked_list_remove((list_node*)(right_neighbor));
+        PUT(HDRP(left_neighbor), PACK(new_size, 0));
+        PUT(FTRP(left_neighbor), PACK(new_size, 0));
+        new_block = left_neighbor;
+    }
+    // When the left neigbor is free
+    else if(!left_neighbor_alloc && right_neighbor_alloc){
+        size_t new_size = GET_SIZE(HDRP(left_neighbor)) + ptr_size;
+        PUT(HDRP(left_neighbor), PACK(new_size, 0));
+        PUT(FTRP(left_neighbor), PACK(new_size, 0));
+        new_block = left_neighbor;
+    }
+    // When the right neighbor is free
+    else if(left_neighbor_alloc && !right_neighbor_alloc){
+        size_t new_size = ptr_size + GET_SIZE(HDRP(right_neighbor));
+        linked_list_remove((list_node*)(right_neighbor));
+        linked_list_add((list_node*)(bp));
+        PUT(HDRP(bp), PACK(new_size, 0));
+        PUT(FTRP(bp), PACK(new_size, 0));
+    }
+    // When neither neighbor is free
+    else{
+        PUT(HDRP(bp), PACK(ptr_size, 0));
+        PUT(FTRP(bp), PACK(ptr_size, 0));
+
+        linked_list_add((list_node*)(bp));
+    }
+
+    return new_block;
+}
+
+// Checks if you can unmap the page
+static void unmap_page(void* ptr){
+    void* left_neighbor = HDRP(PREV_BLKP(ptr));
+    void* right_neighbor = HDRP(NEXT_BLKP(ptr));
+
+    // check if the size of the previous is overhead and the size of the next is 0
+    if(GET_SIZE(left_neighbor) == OVERHEAD && GET_SIZE(right_neighbor) == 0){
+        size_t page_size = PAGE_ALIGN(GET_SIZE(HDRP(ptr)));
+        linked_list_remove((list_node*)(ptr));
+        mem_unmap((ptr-BLOCK_OVERHEAD*2), page_size);
+    }
+}
+
+/*
+ * mm_free - Freeing a block does nothing.
+ */
 void mm_free(void *ptr)
 {
-    if (ptr == NULL) return;
-
-    /* mark free */
-    size_t size = GET_SIZE(HDRP(ptr));
-    PUT(HDRP(ptr), PACK(size, 0));
-    PUT(FTRP(ptr), PACK(size, 0));
-
-    /* coalesce within chunk */
-    void *newbp = coalesce(ptr);
-    (void)newbp; /* silent unused in some builds; coalesce updated block in-place */
+    ptr = coalesce(ptr);
+    unmap_page(ptr);
 }
-
-/* ---------- done ---------- */
