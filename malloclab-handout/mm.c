@@ -1,3 +1,9 @@
+/*
+ * mm.c - An Explicit Free List Allocator implementation using a First-Fit policy.
+ * * This allocator manages the heap using doubly-linked free blocks, which
+ * are coalesced upon freeing to prevent fragmentation. It uses a prologue
+ * and epilogue block to simplify boundary conditions.
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -7,350 +13,374 @@
 #include "mm.h"
 #include "memlib.h"
 
-/* Debug flag - set to 1 to enable debug messages, 0 to disable */
-#define DEBUG 1
+/*********************************************************
+ * NOTE TO STUDENTS: DO NOT MODIFY ANYTHING BELOW THIS LINE
+ *********************************************************/
 
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
+
+/* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
 
 /* rounds up to the nearest multiple of mem_pagesize() */
 #define PAGE_ALIGN(size) (((size) + (mem_pagesize()-1)) & ~(mem_pagesize()-1))
 
-/* Basic constants (Adjusted for 64-bit system, where size_t is 8 bytes) */
-#define WSIZE 8        /* Header/Footer size (bytes) - assumed to be sizeof(size_t) */
-#define DSIZE 16       /* Double word size and Alignment requirement */
-#define CHUNKSIZE (1<<12)  /* Initial heap size (bytes) - 4KB */
 
-/* Basic memory access macros */
+/*********************************************************
+ * EXPLICIT LIST CONSTANTS AND MACROS
+ *********************************************************/
+
+#define WSIZE 8          /* Word size (bytes) */
+#define DSIZE 16         /* Double word size (alignment/min block metadata) */
+#define CHUNKSIZE (1 << 12) /* Extend heap by this amount (4KB) */
+
+/* Minimum block size: Header (8) + Footer (8) + 2 Pointers (16) = 32 bytes */
+#define MIN_BLOCK_SIZE (2 * WSIZE + 2 * DSIZE) 
+
+/* Read/Write a word at address p */
+#define GET(p)       (*(size_t *)(p))
+#define PUT(p, val)  (*(size_t *)(p) = (val))
+
+/* Combine a size and alloc bit */
 #define PACK(size, alloc) ((size) | (alloc))
-#define GET(p) (*(size_t *)(p))
-#define PUT(p, val) (*(size_t *)(p) = (val))
-#define GET_SIZE(p) (GET(p) & ~0xF) /* Use ~0xF to ensure 16-byte alignment */
+
+/* Read the size and allocated fields from address p */
+#define GET_SIZE(p)  (GET(p) & ~0xF)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
-/* Block pointers */
-#define HDRP(bp) ((char *)(bp) - WSIZE)
-#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+/* Given a block pointer bp, compute address of its header and footer */
+#define HDRP(bp)    ((char *)(bp) - WSIZE)
+#define FTRP(bp)    ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-/* For free blocks: payload contains next/prev pointers */
-#define FREE_BLOCK_PAYLOAD(bp) (bp)
+/* Given block ptr bp, compute address of next and previous blocks (sequential heap blocks) */
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 
-/* Minimum block size: Header (WSIZE) + Footer (WSIZE) + 16-byte aligned payload (DSIZE for pointers) */
-#define MIN_BLOCK_SIZE (DSIZE + DSIZE) // 32 bytes minimum
 
+/*********************************************************
+ * EXPLICIT LIST POINTER MANIPULATION
+ * Pointers are stored at the beginning of the free block payload
+ *********************************************************/
+
+typedef struct block_free_s {
+    size_t size_status;     /* Header */
+    struct block_free_s *prev; /* Explicit list: previous free block pointer (WSIZE offset) */
+    struct block_free_s *next; /* Explicit list: next free block pointer (DSIZE offset) */
+    /* Footer follows */
+} block_free_t;
+
+/* Get the explicit list PREV pointer from a free block's payload */
+#define GET_PREV_PTR(bp) (*(block_free_t **)(bp))
+
+/* Get the explicit list NEXT pointer from a free block's payload */
+#define GET_NEXT_PTR(bp) (*(block_free_t **)((char *)(bp) + WSIZE))
+
+/* Set the explicit list PREV pointer in a free block's payload */
+#define SET_PREV_PTR(bp, val) (GET_PREV_PTR(bp) = val)
+
+/* Set the explicit list NEXT pointer in a free block's payload */
+#define SET_NEXT_PTR(bp, val) (GET_NEXT_PTR(bp) = val)
+
+
+/*********************************************************
+ * GLOBAL VARIABLES and FUNCTION PROTOTYPES
+ *********************************************************/
+
+/* Global pointer to the head of the explicit free list */
 static void *free_list_head = NULL;
+/* Global pointer to the start of the heap/prologue padding */
+static void *heap_listp = NULL; 
 
-/* Helper functions */
 static void *extend_heap(size_t size);
+static void insert_block(void *bp);
+static void remove_block(void *bp);
+static void *find_fit(size_t adjusted_size);
+static void place(void *bp, size_t adjusted_size);
 static void *coalesce(void *bp);
-static void *find_fit(size_t asize);
-static void place(void *bp, size_t asize);
-static void insert_free_block(void *bp);
-static void remove_free_block(void *bp);
 
-/* Explicit Free List operations (Pointers are WSIZE apart) */
-#define GET_NEXT(bp) (*(void **)(FREE_BLOCK_PAYLOAD(bp)))
-#define GET_PREV(bp) (*(void **)((char *)FREE_BLOCK_PAYLOAD(bp) + WSIZE))
-#define SET_NEXT(bp, val) (*(void **)(FREE_BLOCK_PAYLOAD(bp)) = (val))
-#define SET_PREV(bp, val) (*(void **)((char *)FREE_BLOCK_PAYLOAD(bp) + WSIZE) = (val))
 
-/* Debug function */
-static void debug_print(const char *msg, void *bp) {
-    if (DEBUG) {
-        printf("DEBUG: %s", msg);
-        if (bp) {
-            size_t size = GET_SIZE(HDRP(bp));
-            int alloc = GET_ALLOC(HDRP(bp));
-            printf(" at %p, size=%zu, alloc=%d", bp, size, alloc);
-        }
-        printf("\n");
+/*********************************************************
+ * EXPLICIT LIST UTILITY FUNCTIONS
+ *********************************************************/
+
+/*
+ * insert_block - Insert a block at the head of the explicit free list (LIFO)
+ */
+static void insert_block(void *bp) {
+    // New block's next points to the current head (could be NULL)
+    SET_NEXT_PTR(bp, free_list_head);
+    
+    // New block's previous is NULL, as it's the new head
+    SET_PREV_PTR(bp, NULL);
+
+    // If the list wasn't empty, update the old head's PREV pointer
+    if (free_list_head != NULL) {
+        SET_PREV_PTR(free_list_head, bp);
+    }
+
+    // Update the global head pointer
+    free_list_head = bp;
+}
+
+/*
+ * remove_block - Remove a block from the explicit free list
+ */
+static void remove_block(void *bp) {
+    void *prev_block = GET_PREV_PTR(bp);
+    void *next_block = GET_NEXT_PTR(bp);
+
+    // Case 1: If the block is the head of the list
+    if (prev_block == NULL) {
+        // Make the next block the new head
+        free_list_head = next_block;
+    } 
+    // Case 2: Block is in the middle or end
+    else {
+        // The previous block bypasses the current block
+        SET_NEXT_PTR(prev_block, next_block);
+    }
+
+    // Case 3: If the block is NOT the tail of the list
+    if (next_block != NULL) {
+        // The next block's PREV pointer points to the previous block (bypassing the current block)
+        SET_PREV_PTR(next_block, prev_block);
     }
 }
 
-/* Check if address is 16-byte aligned */
-static int is_aligned(void *p) {
-    return ((size_t)p & (ALIGNMENT-1)) == 0;
-}
 
-/* Simple MAX macro */
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
+/*********************************************************
+ * CORE MALLOC FUNCTIONS
+ *********************************************************/
 
 /* * mm_init - initialize the malloc package.
  */
-int mm_init(void)
-{
-    debug_print("mm_init called", NULL);
+int mm_init(void) {
+    // Reset global state
     free_list_head = NULL;
+
+    // Create the initial empty heap (Padding + Prologue Header + Prologue Footer + Epilogue Header)
+    // We need 4 words total (4 * WSIZE = 32 bytes)
+    size_t initial_size = PAGE_ALIGN(4 * WSIZE); 
+    if ((heap_listp = mem_map(initial_size)) == NULL) {
+        return -1;
+    }
+
+    // heap_listp points to the padding word
+    // 1. Alignment padding (unused, but ensures first payload is aligned)
+    PUT(heap_listp, 0); 
+    // 2. Prologue Header (Size = DSIZE, Allocated = 1)
+    PUT(HDRP(heap_listp + WSIZE), PACK(DSIZE, 1)); 
+    // 3. Prologue Footer
+    PUT(FTRP(heap_listp + WSIZE), PACK(DSIZE, 1));
+    // 4. Epilogue Header (Size = 0, Allocated = 1) - Marks the end of the heap
+    PUT(HDRP(NEXT_BLKP(heap_listp + WSIZE)), PACK(0, 1));
+    
+    // The first actual block starts after the prologue.
+    void *bp = NEXT_BLKP(heap_listp + WSIZE);
+
+    // Extend the heap to create an initial large free block
+    if (extend_heap(CHUNKSIZE) == NULL) {
+        return -1;
+    }
+    
     return 0;
 }
 
-/* * mm_malloc - Allocate a block from the free list.
+/*
+ * mm_malloc - Allocate a block by using bytes from the explicit free list,
+ * grabbing a new page if necessary.
  */
-void *mm_malloc(size_t size)
-{
-    debug_print("mm_malloc called", NULL);
-    if (DEBUG) printf("DEBUG: requested size = %zu\n", size);
-    
+void *mm_malloc(size_t size) {
+    size_t adjusted_size; // Adjusted block size
+    size_t extendsize;    // Amount to extend heap if no fit
+    void *bp;             // Pointer to the block found
+
+    // Ignore spurious requests
     if (size == 0) return NULL;
+
+    // Calculate adjusted block size (16-byte alignment + header/footer)
+    // DSIZE for Header + Footer
+    adjusted_size = ALIGN(size + DSIZE); 
     
-    /* Adjust block size: payload size + Header (WSIZE) + Footer (WSIZE) */
-    size_t asize = ALIGN(size + DSIZE); 
-    if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
-    
-    if (DEBUG) printf("DEBUG: adjusted size = %zu\n", asize);
-    
-    void *bp;
-    
-    /* Search free list */
-    debug_print("searching free list", NULL);
-    if ((bp = find_fit(asize)) != NULL) {
-        debug_print("found fit", bp);
-        place(bp, asize);
+    // Ensure the block is large enough to store the free list pointers (MIN_BLOCK_SIZE)
+    if (adjusted_size < MIN_BLOCK_SIZE) {
+        adjusted_size = MIN_BLOCK_SIZE;
+    }
+
+    // 1. Search the explicit free list for a fit (First-Fit)
+    if ((bp = find_fit(adjusted_size)) != NULL) {
+        place(bp, adjusted_size);
         return bp;
     }
-    
-    debug_print("no fit found, extending heap", NULL);
-    /* Extend heap if no fit */
-    size_t extendsize = MAX(asize, CHUNKSIZE);
-    extendsize = PAGE_ALIGN(extendsize);
-    
-    if ((bp = extend_heap(extendsize)) == NULL)
-        return NULL;
-    
-    debug_print("extended heap, new block", bp);
-    
-    place(bp, asize);
-    debug_print("after place, returning", bp);
-    return bp;
-}
 
-/*
- * mm_free - Free a block.
- */
-void mm_free(void *ptr)
-{
-    debug_print("mm_free called", ptr);
-    if (ptr == NULL) return;
-    
-    size_t size = GET_SIZE(HDRP(ptr));
-    
-    /* Mark as free (Header and Footer) */
-    PUT(HDRP(ptr), PACK(size, 0));
-    PUT(FTRP(ptr), PACK(size, 0));
-    
-    /* Insert into free list and coalesce */
-    insert_free_block(ptr);
-    coalesce(ptr);
-}
-
-/*
- * extend_heap - Extend heap with a new free block.
- */
-static void *extend_heap(size_t size)
-{
-    char *start_addr;
-    
-    if (DEBUG) printf("DEBUG: mem_map requesting %zu bytes\n", size);
-    if ((start_addr = mem_map(size)) == NULL)
-        return NULL;
-    
-    if (DEBUG) printf("DEBUG: mem_map returned %p\n", start_addr);
-    
-    /* The payload (bp) must be 16-byte aligned.
-     * HDRP(bp) must be WSIZE before bp. */
-    char *bp = (char *)ALIGN((size_t)(start_addr + WSIZE));
-    
-    /* Calculate actual block size */
-    size_t block_size = size - (bp - start_addr) + WSIZE; // Total mapped size - padding to align bp + WSIZE (header)
-    block_size = ALIGN(block_size);  /* Ensure final size is DSIZE-aligned */
-    
-    /* Sanity check */
-    if (block_size < MIN_BLOCK_SIZE) {
-        if (DEBUG) printf("DEBUG: ERROR: block size %zu too small, need %zu\n", block_size, MIN_BLOCK_SIZE);
-        mem_unmap(start_addr, size); // Release memory if not usable
+    // 2. No fit found. Extend heap.
+    extendsize = PAGE_ALIGN(adjusted_size);
+    if ((bp = extend_heap(extendsize)) == NULL) {
         return NULL;
     }
     
-    /* Set Header and Footer for the new free block */
-    PUT(HDRP(bp), PACK(block_size, 0));
-    PUT(FTRP(bp), PACK(block_size, 0));
-    
-    if (DEBUG) printf("DEBUG: set header at %p and footer at %p to size %zu\n", HDRP(bp), FTRP(bp), block_size);
-    if (DEBUG) printf("DEBUG: payload at %p (aligned: %d)\n", bp, is_aligned(bp));
-    
-    /* Initialize free list pointers */
-    SET_NEXT(bp, NULL);
-    SET_PREV(bp, NULL);
-    
-    insert_free_block(bp);
-    
+    // Allocate the block from the newly extended space
+    place(bp, adjusted_size);
     return bp;
 }
 
 /*
- * next_block - Get next block pointer (payload)
+ * mm_free - Freeing a block, coalescing, and adding to the explicit free list.
  */
-static void *next_block(void *bp) {
+void mm_free(void *bp) {
+    if (bp == NULL) return;
+
     size_t size = GET_SIZE(HDRP(bp));
-    void *next = (char *)bp + size - DSIZE;
-    return next;
+
+    // Mark the block as free in header and footer
+    PUT(HDRP(bp), PACK(size, 0));
+    PUT(FTRP(bp), PACK(size, 0));
+
+    // Coalesce with neighbors and insert the resulting block into the free list
+    coalesce(bp);
+
+    // NOTE: mem_unmap optimization goes here if needed later.
 }
 
-/*
- * coalesce - Boundary tag coalescing
+
+/*********************************************************
+ * STATIC HELPER IMPLEMENTATIONS
+ *********************************************************/
+
+/* * extend_heap - Request more memory by calling mem_map
+ * Initializes the new chunk of memory as a free block.
  */
-static void *coalesce(void *bp)
-{
-    debug_print("coalesce called", bp);
-    size_t size = GET_SIZE(HDRP(bp));
-    
-    /* Check previous block's allocation status using its footer, which is WSIZE before current header */
-    size_t prev_alloc = GET_ALLOC(HDRP(bp) - WSIZE);
-    
-    /* Check next block's allocation status using its header */
-    void *next_bp = next_block(bp);
-    size_t next_alloc = GET_ALLOC(HDRP(next_bp));
-    
-    if (prev_alloc && next_alloc) {
-        return bp; /* Case 1: No free blocks to coalesce */
-    } 
-    
-    /* Remove the current block before any merging/re-insertion */
-    remove_free_block(bp); 
-    
-    if (prev_alloc && !next_alloc) {         /* Case 2: Coalesce with next */
-        debug_print("coalescing with next block", next_bp);
-        remove_free_block(next_bp);
-        size += GET_SIZE(HDRP(next_bp));
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
-    } 
-    else if (!prev_alloc && next_alloc) {    /* Case 3: Coalesce with previous */
-        /* Get previous block pointer (payload) using its footer size */
-        size_t prev_size = GET_SIZE(HDRP(bp) - WSIZE);
-        void *prev_bp = (char *)bp - prev_size;
-        
-        debug_print("coalescing with previous block", prev_bp);
-        remove_free_block(prev_bp); // Should already be removed, but safe check
-        size += prev_size;
-        
-        PUT(FTRP(bp), PACK(size, 0)); // Write new footer at current block's end
-        PUT(HDRP(prev_bp), PACK(size, 0)); // Write new header at previous block's start
-        bp = prev_bp;
-    } 
-    else {                                   /* Case 4: Coalesce all three */
-        size_t prev_size = GET_SIZE(HDRP(bp) - WSIZE);
-        void *prev_bp = (char *)bp - prev_size;
-        
-        debug_print("coalescing with previous and next blocks", next_bp);
-        remove_free_block(next_bp);
-        remove_free_block(prev_bp);
-        
-        size += prev_size + GET_SIZE(HDRP(next_bp));
-        
-        PUT(HDRP(prev_bp), PACK(size, 0)); // Write new header at start of previous
-        PUT(FTRP(next_bp), PACK(size, 0)); // Write new footer at end of next
-        bp = prev_bp;
+static void *extend_heap(size_t size) {
+    void *bp;
+    size_t extended_size = PAGE_ALIGN(size);
+
+    // Request new pages
+    if ((bp = mem_map(extended_size)) == NULL) {
+        return NULL;
     }
+
+    // Initialize new free block header/footer
+    PUT(HDRP(bp), PACK(extended_size, 0)); 
+    PUT(FTRP(bp), PACK(extended_size, 0));
     
-    /* Re-insert the new, larger block */
-    insert_free_block(bp); 
-    return bp;
+    // New epilogue header (marks the new end of the heap)
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+
+    // Coalesce with the previous block (which was the old epilogue's neighbor)
+    // and insert into the free list.
+    return coalesce(bp);
 }
 
-/*
- * find_fit - First-fit search.
+/* * find_fit - First-Fit search: Iterate through the explicit free list
  */
-static void *find_fit(size_t asize)
-{
-    debug_print("find_fit called", NULL);
-    
+static void *find_fit(size_t adjusted_size) {
     void *bp = free_list_head;
+
     while (bp != NULL) {
-        size_t block_size = GET_SIZE(HDRP(bp));
-        if (block_size >= asize) {
-            return bp;
+        if (GET_SIZE(HDRP(bp)) >= adjusted_size) {
+            return bp; // Found a fit!
         }
-        bp = GET_NEXT(bp);
+        // Move to the next free block using the explicit list pointer
+        bp = GET_NEXT_PTR(bp);
     }
-    debug_print("no fit found", NULL);
-    return NULL;
+    return NULL; // No fit found
 }
 
-/*
- * place - Place block and split if possible.
+/* * place - Allocates the requested block and handles splitting
  */
-static void place(void *bp, size_t asize)
-{
-    debug_print("place called", bp);
+static void place(void *bp, size_t adjusted_size) {
     size_t total_size = GET_SIZE(HDRP(bp));
-    
-    remove_free_block(bp);
-    
-    if (total_size >= asize + MIN_BLOCK_SIZE) {
-        debug_print("splitting block", NULL);
+    size_t remainder = total_size - adjusted_size;
+
+    // First, remove the block from the free list
+    remove_block(bp);
+
+    // Check if the remainder is large enough to be a new free block (>= MIN_BLOCK_SIZE)
+    if (remainder >= MIN_BLOCK_SIZE) {
+        // A. Split the block
         
-        /* Set header/footer for the allocated part */
-        PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp), PACK(asize, 1));
-        
-        /* New free block starts immediately after the allocated part */
-        void *new_block = (char *)bp + asize;
-        size_t remainder = total_size - asize;
-        
-        /* Set header/footer for the new free block */
-        PUT(HDRP(new_block), PACK(remainder, 0));
-        PUT(FTRP(new_block), PACK(remainder, 0));
-        
-        SET_NEXT(new_block, NULL);
-        SET_PREV(new_block, NULL);
-        
-        insert_free_block(new_block);
-        
+        // 1. Allocate the requested portion
+        PUT(HDRP(bp), PACK(adjusted_size, 1));
+        PUT(FTRP(bp), PACK(adjusted_size, 1));
+
+        // 2. Create the new free block
+        void *new_free_bp = NEXT_BLKP(bp);
+        PUT(HDRP(new_free_bp), PACK(remainder, 0));
+        PUT(FTRP(new_free_bp), PACK(remainder, 0));
+
+        // 3. Add the new free block to the explicit list
+        insert_block(new_free_bp);
     } else {
-        debug_print("using whole block", NULL);
-        /* Set header/footer for the whole block as allocated */
+        // B. Allocate the entire block (no split)
         PUT(HDRP(bp), PACK(total_size, 1));
         PUT(FTRP(bp), PACK(total_size, 1));
     }
 }
 
-/*
- * insert_free_block - Add to free list (LIFO).
+/* * coalesce - Coalesce a free block with adjacent free neighbors.
+ * Returns pointer to the start of the new coalesced block.
  */
-static void insert_free_block(void *bp)
-{
-    debug_print("insert_free_block", bp);
-    
-    SET_NEXT(bp, free_list_head);
-    SET_PREV(bp, NULL);
-    
-    if (free_list_head != NULL) {
-        SET_PREV(free_list_head, bp);
-    }
-    
-    free_list_head = bp;
-}
+static void *coalesce(void *bp) {
+    // Check if previous block is allocated (using its footer)
+    size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
+    // Check if next block is allocated (using its header)
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
+    size_t size = GET_SIZE(HDRP(bp));
 
-/*
- * remove_free_block - Remove from free list.
- */
-static void remove_free_block(void *bp)
-{
-    debug_print("remove_free_block", bp);
-    
-    if (GET_PREV(bp) != NULL) {
-        SET_NEXT(GET_PREV(bp), GET_NEXT(bp));
-    } else {
-        free_list_head = GET_NEXT(bp);
+    void *prev_blkp = PREV_BLKP(bp);
+    void *next_blkp = NEXT_BLKP(bp);
+
+    // Case 1: Both neighbors are allocated (no coalescing)
+    if (prev_alloc && next_alloc) {
+        // Do nothing with neighbors
+    } 
+    // Case 2: Only next block is free
+    else if (prev_alloc && !next_alloc) {
+        // Remove the next free block from the explicit list
+        remove_block(next_blkp); 
+        
+        // Merge sizes
+        size += GET_SIZE(HDRP(next_blkp));
+        
+        // Update header of current block and footer of next block (bp stays the same)
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    } 
+    // Case 3: Only previous block is free
+    else if (!prev_alloc && next_alloc) {
+        // Remove the previous free block from the explicit list
+        remove_block(prev_blkp);
+        
+        // Merge sizes
+        size += GET_SIZE(HDRP(prev_blkp));
+        
+        // bp now points to the previous block's payload start (moves backward)
+        bp = prev_blkp;
+        
+        // Update header/footer of the new merged block
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
+    } 
+    // Case 4: Both previous and next blocks are free
+    else {
+        // Remove both neighbors from the explicit list
+        remove_block(prev_blkp);
+        remove_block(next_blkp);
+        
+        // Merge all three sizes
+        size += GET_SIZE(HDRP(prev_blkp)) + GET_SIZE(HDRP(next_blkp));
+        
+        // bp now points to the previous block's payload start (moves backward)
+        bp = prev_blkp;
+
+        // Update header/footer of the new merged block
+        PUT(HDRP(bp), PACK(size, 0));
+        PUT(FTRP(bp), PACK(size, 0));
     }
-    
-    if (GET_NEXT(bp) != NULL) {
-        SET_PREV(GET_NEXT(bp), GET_PREV(bp));
-    }
-    
-    /* Clear pointers of the removed block to catch errors */
-    SET_NEXT(bp, NULL);
-    SET_PREV(bp, NULL);
+
+    // Add the resulting coalesced block (bp) back into the free list
+    insert_block(bp);
+
+    return bp;
 }
