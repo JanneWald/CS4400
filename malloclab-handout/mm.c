@@ -22,7 +22,7 @@
 #include "memlib.h"
 
 /* Debug flag */
-#define DEBUG 1
+
 
 /* ---------- Alignment and basic sizes ---------- */
 #define ALIGNMENT 16
@@ -121,18 +121,17 @@ static void *find_chunk_for_bp(void *bp)
 /* ---------- Core: block helpers inside a chunk ---------- */
 
 /* create a new chunk big enough to hold req_block_size (which includes overhead).
- * We must map at least mem_pagesize() bytes. The returned chunk stores metadata at its start.
  * Returns 0 on success, -1 on failure.
  */
 static int create_chunk_for_block(size_t req_block_size)
 {
     size_t pagesz = mem_pagesize();
 
-    /* We need chunk payload (after metadata) to be >= req_block_size.
-     * So chunk_size >= CHUNK_META_SIZE + req_block_size.
-     * Round up to page size.
+    /* We need space for: CHUNK_META + req_block_size (free block) + Epilogue Header (SIZE_T_SZ)
+     * This guarantees the Epilogue doesn't fall on an unmapped page boundary.
      */
-    size_t needed = CHUNK_META_SIZE + req_block_size;
+    size_t needed = CHUNK_META_SIZE + req_block_size + SIZE_T_SZ; 
+    
     if (needed < pagesz) needed = pagesz;
     size_t chunk_size = PAGE_ALIGN(needed);
 
@@ -145,8 +144,8 @@ static int create_chunk_for_block(size_t req_block_size)
     /* payload start */
     char *payload = (char *)chunk + CHUNK_META_SIZE;
 
-    /* The initial free block in this chunk spans payload..(chunk_end) */
-    size_t block_size = chunk_size - CHUNK_META_SIZE; /* includes header+footer */
+    /* The initial free block in this chunk spans payload..(chunk_end - Epilogue size) */
+    size_t block_size = chunk_size - CHUNK_META_SIZE - SIZE_T_SZ; /* Subtract Epilogue size */
 
     /* place header and footer for the single free block */
     PUT((char *)payload - SIZE_T_SZ, PACK(block_size, 0));                 /* header */
