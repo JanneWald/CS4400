@@ -25,13 +25,13 @@
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
 
-/* Block header */
+/* Block header - ensure payload is 16-byte aligned */
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 
 /* For free blocks: payload contains next/prev pointers */
 #define FREE_BLOCK_PAYLOAD(bp) (bp)
 
-/* Minimum block size - header + 2 pointers */
+/* Minimum block size - header + 2 pointers, ensure 16-byte aligned */
 #define MIN_BLOCK_SIZE (ALIGN(WSIZE + DSIZE))
 
 static void *free_list_head = NULL;
@@ -61,6 +61,11 @@ static void debug_print(const char *msg, void *bp) {
     }
 }
 
+/* Check if address is 16-byte aligned */
+static int is_aligned(void *p) {
+    return ((size_t)p & (ALIGNMENT-1)) == 0;
+}
+
 /* 
  * mm_init - initialize the malloc package.
  */
@@ -81,8 +86,9 @@ void *mm_malloc(size_t size)
     
     if (size == 0) return NULL;
     
-    /* Adjust size with header and alignment */
-    size_t asize = ALIGN(size + WSIZE);
+    /* Adjust block size to include overhead and ensure 16-byte alignment */
+    size_t asize = ALIGN(size);
+    asize += WSIZE;  /* Add space for header */
     if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
     
     if (DEBUG) printf("DEBUG: adjusted size = %zu\n", asize);
@@ -94,6 +100,7 @@ void *mm_malloc(size_t size)
     if ((bp = find_fit(asize)) != NULL) {
         debug_print("found fit", bp);
         place(bp, asize);
+        if (DEBUG) printf("DEBUG: returning aligned payload: %p (aligned: %d)\n", bp, is_aligned(bp));
         return bp;
     }
     
@@ -108,6 +115,7 @@ void *mm_malloc(size_t size)
     debug_print("extended heap, new block", bp);
     place(bp, asize);
     debug_print("after place, returning", bp);
+    if (DEBUG) printf("DEBUG: returning aligned payload: %p (aligned: %d)\n", bp, is_aligned(bp));
     return bp;
 }
 
@@ -118,6 +126,8 @@ void mm_free(void *ptr)
 {
     debug_print("mm_free called", ptr);
     if (ptr == NULL) return;
+    
+    if (DEBUG) printf("DEBUG: freeing aligned payload: %p (aligned: %d)\n", ptr, is_aligned(ptr));
     
     size_t size = GET_SIZE(HDRP(ptr));
     if (DEBUG) printf("DEBUG: freeing block size=%zu\n", size);
@@ -136,7 +146,8 @@ void mm_free(void *ptr)
  */
 static void *extend_heap(size_t size)
 {
-    size_t asize = ALIGN(size);
+    /* Request extra space to ensure we can create 16-byte aligned payload */
+    size_t asize = ALIGN(size + ALIGNMENT);
     char *bp;
     
     if (DEBUG) printf("DEBUG: mem_map requesting %zu bytes\n", asize);
@@ -145,20 +156,27 @@ static void *extend_heap(size_t size)
     
     if (DEBUG) printf("DEBUG: mem_map returned %p\n", bp);
     
-    /* The block pointer points to the PAYLOAD, not the header */
-    void *block_payload = bp + WSIZE;
+    /* Find the first 16-byte aligned address for payload within the mapped memory */
+    void *aligned_payload = (void *)ALIGN((size_t)(bp + WSIZE));
+    
+    /* Calculate header position (before the aligned payload) */
+    void *header = (char *)aligned_payload - WSIZE;
+    
+    /* Calculate the actual usable size (from header to end of mapped memory) */
+    size_t usable_size = asize - ((char *)header - bp);
     
     /* Initialize block header */
-    PUT(bp, PACK(asize, 0));
-    if (DEBUG) printf("DEBUG: set header at %p to size %zu, alloc 0\n", bp, asize);
+    PUT(header, PACK(usable_size, 0));
+    if (DEBUG) printf("DEBUG: set header at %p to size %zu, alloc 0\n", header, usable_size);
+    if (DEBUG) printf("DEBUG: payload at %p (aligned: %d)\n", aligned_payload, is_aligned(aligned_payload));
     
     /* Initialize free list pointers in the payload */
-    SET_NEXT(block_payload, NULL);
-    SET_PREV(block_payload, NULL);
-    if (DEBUG) printf("DEBUG: initialized free list pointers at payload %p\n", block_payload);
+    SET_NEXT(aligned_payload, NULL);
+    SET_PREV(aligned_payload, NULL);
+    if (DEBUG) printf("DEBUG: initialized free list pointers at payload %p\n", aligned_payload);
     
-    insert_free_block(block_payload);
-    return block_payload;
+    insert_free_block(aligned_payload);
+    return aligned_payload;
 }
 
 /*
