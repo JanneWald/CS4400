@@ -7,6 +7,9 @@
 #include "mm.h"
 #include "memlib.h"
 
+/* Debug flag - set to 1 to enable debug messages, 0 to disable */
+#define DEBUG 1
+
 /* always use 16-byte alignment */
 #define ALIGNMENT 16
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~(ALIGNMENT-1))
@@ -25,7 +28,10 @@
 /* Block header */
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 
-/* Minimum block size */
+/* For free blocks: payload contains next/prev pointers */
+#define FREE_BLOCK_PAYLOAD(bp) (bp)
+
+/* Minimum block size - header + 2 pointers */
 #define MIN_BLOCK_SIZE (ALIGN(WSIZE + DSIZE))
 
 static void *free_list_head = NULL;
@@ -38,19 +44,21 @@ static void place(void *bp, size_t asize);
 static void insert_free_block(void *bp);
 static void remove_free_block(void *bp);
 
-/* Free list operations */
-#define GET_NEXT(bp) (*(void **)(bp))
-#define GET_PREV(bp) (*(void **)((char *)(bp) + WSIZE))
-#define SET_NEXT(bp, val) (*(void **)(bp) = (val))
-#define SET_PREV(bp, val) (*(void **)((char *)(bp) + WSIZE) = (val))
+/* Free list operations - these operate on the PAYLOAD of free blocks */
+#define GET_NEXT(bp) (*(void **)(FREE_BLOCK_PAYLOAD(bp)))
+#define GET_PREV(bp) (*(void **)((char *)FREE_BLOCK_PAYLOAD(bp) + WSIZE))
+#define SET_NEXT(bp, val) (*(void **)(FREE_BLOCK_PAYLOAD(bp)) = (val))
+#define SET_PREV(bp, val) (*(void **)((char *)FREE_BLOCK_PAYLOAD(bp) + WSIZE) = (val))
 
 /* Debug function */
 static void debug_print(const char *msg, void *bp) {
-    printf("DEBUG: %s", msg);
-    if (bp) {
-        printf(" at %p, size=%zu, alloc=%d", bp, GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+    if (DEBUG) {
+        printf("DEBUG: %s", msg);
+        if (bp) {
+            printf(" at %p, size=%zu, alloc=%d", bp, GET_SIZE(HDRP(bp)), GET_ALLOC(HDRP(bp)));
+        }
+        printf("\n");
     }
-    printf("\n");
 }
 
 /* 
@@ -69,7 +77,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
     debug_print("mm_malloc called", NULL);
-    printf("DEBUG: requested size = %zu\n", size);
+    if (DEBUG) printf("DEBUG: requested size = %zu\n", size);
     
     if (size == 0) return NULL;
     
@@ -77,7 +85,7 @@ void *mm_malloc(size_t size)
     size_t asize = ALIGN(size + WSIZE);
     if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
     
-    printf("DEBUG: adjusted size = %zu\n", asize);
+    if (DEBUG) printf("DEBUG: adjusted size = %zu\n", asize);
     
     void *bp;
     
@@ -92,7 +100,7 @@ void *mm_malloc(size_t size)
     debug_print("no fit found, extending heap", NULL);
     /* Extend heap if no fit */
     size_t extendsize = (asize > CHUNKSIZE) ? asize : CHUNKSIZE;
-    printf("DEBUG: extending heap by %zu bytes\n", extendsize);
+    if (DEBUG) printf("DEBUG: extending heap by %zu bytes\n", extendsize);
     
     if ((bp = extend_heap(extendsize)) == NULL)
         return NULL;
@@ -112,8 +120,12 @@ void mm_free(void *ptr)
     if (ptr == NULL) return;
     
     size_t size = GET_SIZE(HDRP(ptr));
-    printf("DEBUG: freeing block size=%zu\n", size);
+    if (DEBUG) printf("DEBUG: freeing block size=%zu\n", size);
     PUT(HDRP(ptr), PACK(size, 0));  /* Mark as free */
+    
+    /* Initialize free list pointers */
+    SET_NEXT(ptr, NULL);
+    SET_PREV(ptr, NULL);
     
     insert_free_block(ptr);
     coalesce(ptr);
@@ -127,23 +139,26 @@ static void *extend_heap(size_t size)
     size_t asize = ALIGN(size);
     char *bp;
     
-    printf("DEBUG: mem_map requesting %zu bytes\n", asize);
+    if (DEBUG) printf("DEBUG: mem_map requesting %zu bytes\n", asize);
     if ((bp = mem_map(asize)) == NULL)
         return NULL;
     
-    printf("DEBUG: mem_map returned %p\n", bp);
+    if (DEBUG) printf("DEBUG: mem_map returned %p\n", bp);
+    
+    /* The block pointer points to the PAYLOAD, not the header */
+    void *block_payload = bp + WSIZE;
     
     /* Initialize block header */
     PUT(bp, PACK(asize, 0));
-    printf("DEBUG: set header at %p to size %zu, alloc 0\n", bp, asize);
+    if (DEBUG) printf("DEBUG: set header at %p to size %zu, alloc 0\n", bp, asize);
     
-    /* Initialize free list pointers */
-    SET_NEXT(bp, NULL);
-    SET_PREV(bp, NULL);
-    printf("DEBUG: initialized free list pointers\n");
+    /* Initialize free list pointers in the payload */
+    SET_NEXT(block_payload, NULL);
+    SET_PREV(block_payload, NULL);
+    if (DEBUG) printf("DEBUG: initialized free list pointers at payload %p\n", block_payload);
     
-    insert_free_block(bp);
-    return bp;
+    insert_free_block(block_payload);
+    return block_payload;
 }
 
 /*
@@ -152,12 +167,12 @@ static void *extend_heap(size_t size)
 static void *next_block(void *bp) {
     size_t size = GET_SIZE(HDRP(bp));
     void *next = (char *)bp + size;
-    printf("DEBUG: next_block: %p + %zu = %p\n", bp, size, next);
+    if (DEBUG) printf("DEBUG: next_block: %p + %zu = %p\n", bp, size, next);
     return next;
 }
 
 /*
- * coalesce - Simple coalescing that only checks next block
+ * coalesce - Simple coalescing
  */
 static void *coalesce(void *bp)
 {
@@ -165,10 +180,10 @@ static void *coalesce(void *bp)
     size_t size = GET_SIZE(HDRP(bp));
     void *next = next_block(bp);
     
-    printf("DEBUG: checking next block at %p\n", next);
+    if (DEBUG) printf("DEBUG: checking next block at %p\n", next);
     
     /* Only coalesce if next block exists and is free */
-    if (next != NULL && !GET_ALLOC(HDRP(next))) {
+    if (!GET_ALLOC(HDRP(next))) {
         debug_print("coalescing with next block", next);
         remove_free_block(next);
         size += GET_SIZE(HDRP(next));
@@ -189,11 +204,11 @@ static void *coalesce(void *bp)
 static void *find_fit(size_t asize)
 {
     debug_print("find_fit called", NULL);
-    printf("DEBUG: looking for block >= %zu\n", asize);
+    if (DEBUG) printf("DEBUG: looking for block >= %zu\n", asize);
     
     void *bp = free_list_head;
     while (bp != NULL) {
-        printf("DEBUG: checking block %p, size=%zu\n", bp, GET_SIZE(HDRP(bp)));
+        if (DEBUG) printf("DEBUG: checking block %p, size=%zu\n", bp, GET_SIZE(HDRP(bp)));
         if (GET_SIZE(HDRP(bp)) >= asize) {
             return bp;
         }
@@ -209,7 +224,7 @@ static void *find_fit(size_t asize)
 static void place(void *bp, size_t asize)
 {
     debug_print("place called", bp);
-    printf("DEBUG: placing block of size %zu into block of size %zu\n", 
+    if (DEBUG) printf("DEBUG: placing block of size %zu into block of size %zu\n", 
            asize, GET_SIZE(HDRP(bp)));
     
     size_t total_size = GET_SIZE(HDRP(bp));
@@ -219,13 +234,13 @@ static void place(void *bp, size_t asize)
     
     /* Only split if there's enough space for a new free block */
     if (total_size >= asize + MIN_BLOCK_SIZE) {
-        printf("DEBUG: splitting block\n");
+        if (DEBUG) printf("DEBUG: splitting block\n");
         /* Split block */
         PUT(HDRP(bp), PACK(asize, 1));
         
         void *new_block = next_block(bp);
         size_t remainder = total_size - asize;
-        printf("DEBUG: creating new free block at %p, size %zu\n", new_block, remainder);
+        if (DEBUG) printf("DEBUG: creating new free block at %p, size %zu\n", new_block, remainder);
         
         PUT(HDRP(new_block), PACK(remainder, 0));
         
@@ -236,7 +251,7 @@ static void place(void *bp, size_t asize)
         debug_print("inserting new free block", new_block);
         insert_free_block(new_block);
     } else {
-        printf("DEBUG: using whole block\n");
+        if (DEBUG) printf("DEBUG: using whole block\n");
         /* Use whole block */
         PUT(HDRP(bp), PACK(total_size, 1));
     }
@@ -248,7 +263,7 @@ static void place(void *bp, size_t asize)
 static void insert_free_block(void *bp)
 {
     debug_print("insert_free_block", bp);
-    printf("DEBUG: current free_list_head = %p\n", free_list_head);
+    if (DEBUG) printf("DEBUG: current free_list_head = %p\n", free_list_head);
     
     SET_NEXT(bp, free_list_head);
     SET_PREV(bp, NULL);
@@ -258,7 +273,7 @@ static void insert_free_block(void *bp)
     }
     
     free_list_head = bp;
-    printf("DEBUG: new free_list_head = %p\n", free_list_head);
+    if (DEBUG) printf("DEBUG: new free_list_head = %p\n", free_list_head);
 }
 
 /*
@@ -269,15 +284,15 @@ static void remove_free_block(void *bp)
     debug_print("remove_free_block", bp);
     
     if (GET_PREV(bp) != NULL) {
-        printf("DEBUG: updating prev->next from %p to %p\n", GET_NEXT(bp), GET_NEXT(GET_PREV(bp)));
+        if (DEBUG) printf("DEBUG: updating prev->next from %p to %p\n", bp, GET_NEXT(bp));
         SET_NEXT(GET_PREV(bp), GET_NEXT(bp));
     } else {
-        printf("DEBUG: updating free_list_head from %p to %p\n", free_list_head, GET_NEXT(bp));
+        if (DEBUG) printf("DEBUG: updating free_list_head from %p to %p\n", free_list_head, GET_NEXT(bp));
         free_list_head = GET_NEXT(bp);
     }
     
     if (GET_NEXT(bp) != NULL) {
-        printf("DEBUG: updating next->prev from %p to %p\n", GET_PREV(bp), GET_PREV(GET_NEXT(bp)));
+        if (DEBUG) printf("DEBUG: updating next->prev from %p to %p\n", bp, GET_PREV(bp));
         SET_PREV(GET_NEXT(bp), GET_PREV(bp));
     }
 }
