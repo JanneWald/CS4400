@@ -29,6 +29,7 @@
 #define MIN_BLOCK_SIZE (ALIGN(WSIZE + DSIZE))
 
 static void *free_list_head = NULL;
+static size_t total_heap_size = 0;
 
 /* Helper functions */
 static void *extend_heap(size_t size);
@@ -50,6 +51,7 @@ static void remove_free_block(void *bp);
 int mm_init(void)
 {
     free_list_head = NULL;
+    total_heap_size = 0;
     return 0;
 }
 
@@ -58,30 +60,30 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    printf("DEBUG: mm_malloc(%zu)\n", size);
+    printf("DEBUG: mm_malloc(%zu)\n", size);  
     if (size == 0) return NULL;
+    
     
     /* Adjust size with header and alignment */
     size_t asize = ALIGN(size + WSIZE);
     if (asize < MIN_BLOCK_SIZE) asize = MIN_BLOCK_SIZE;
     
     printf("DEBUG: looking for fit for size %zu\n", asize);
-
     void *bp;
     
     /* Search free list */
     if ((bp = find_fit(asize)) != NULL) {
+        printf("DEBUG: found fit at %p\n", bp);
         place(bp, asize);
         return bp;
     }
     
     printf("DEBUG: no fit found, extending heap\n");
-    /* Extend heap if no fit - use larger of requested size or CHUNKSIZE */
+    /* Extend heap if no fit */
     size_t extendsize = (asize > CHUNKSIZE) ? asize : CHUNKSIZE;
     if ((bp = extend_heap(extendsize)) == NULL)
         return NULL;
     
-
     printf("DEBUG: extended heap, new block at %p\n", bp);
     place(bp, asize);
     return bp;
@@ -112,6 +114,8 @@ static void *extend_heap(size_t size)
     if ((bp = mem_map(asize)) == NULL)
         return NULL;
     
+    total_heap_size += asize;
+    
     /* Initialize block header */
     PUT(bp, PACK(asize, 0));
     
@@ -132,6 +136,13 @@ static void *next_block(void *bp) {
 }
 
 /*
+ * is_valid_block - Check if a block pointer is within heap bounds
+ */
+static int is_valid_block(void *bp) {
+    return (bp != NULL);
+}
+
+/*
  * coalesce - Simple coalescing that only checks next block
  */
 static void *coalesce(void *bp)
@@ -139,8 +150,8 @@ static void *coalesce(void *bp)
     size_t size = GET_SIZE(HDRP(bp));
     void *next = next_block(bp);
     
-    /* Only coalesce with next block for now (simpler) */
-    if (!GET_ALLOC(HDRP(next))) {
+    /* Only coalesce if next block exists and is free */
+    if (is_valid_block(next) && !GET_ALLOC(HDRP(next))) {
         remove_free_block(next);
         size += GET_SIZE(HDRP(next));
         PUT(HDRP(bp), PACK(size, 0));
@@ -177,6 +188,7 @@ static void place(void *bp, size_t asize)
     size_t total_size = GET_SIZE(HDRP(bp));
     remove_free_block(bp);
     
+    /* Only split if there's enough space for a new free block */
     if (total_size >= asize + MIN_BLOCK_SIZE) {
         /* Split block */
         PUT(HDRP(bp), PACK(asize, 1));
@@ -184,9 +196,13 @@ static void place(void *bp, size_t asize)
         void *new_block = next_block(bp);
         PUT(HDRP(new_block), PACK(total_size - asize, 0));
         
+        /* Only add to free list if it's a valid free block */
         SET_NEXT(new_block, NULL);
         SET_PREV(new_block, NULL);
         insert_free_block(new_block);
+        
+        /* Try to coalesce the new free block with its neighbors */
+        coalesce(new_block);
     } else {
         /* Use whole block */
         PUT(HDRP(bp), PACK(total_size, 1));
