@@ -67,13 +67,14 @@ typedef struct node{
 
 typedef size_t block_header;
 typedef size_t block_footer;
-
-// start of linked list
-node* head = NULL;
-
 size_t multiplier = 2;
 
-// adds to the linked list
+
+node* head = NULL;
+
+/*
+  Generic add node linked list function
+*/
 void linked_list_add(node* new){
     if(head == NULL){
         head = new;
@@ -87,31 +88,31 @@ void linked_list_add(node* new){
         head->prev = NULL;
     }
 }
-
-// removes from the linked list
+/*
+  Gerneric remove node linked list function
+*/
 void linked_list_remove(node* curr){
-    node* node_prev = curr->prev;
-    node* node_next = curr->next;
+    node* prev = curr->prev;
+    node* next = curr->next;
 
-    // if node == head then the head is now equal to the node
     if(curr == head) {
-        head = node_next;
+        head = next;
     }
 
-    // if prev != null then next of prev is next of node
-    if(node_prev != NULL){
-        node_prev->next = node_next;
+    if(prev != NULL){
+        prev->next = next;
     }
 
-    // if next != null then prev of next is prev of node
-    if(node_next != NULL){
-        node_next->prev = node_prev;
+    if(next != NULL){
+        next->prev = prev;
     }
 
     return;
 }
 
-// finds a node in the linked list 
+/*
+  Finds a block in the linked list that is big enough
+*/
 node* linked_list_find(size_t requested_size){
     node* current;
     current = head;
@@ -128,9 +129,10 @@ node* linked_list_find(size_t requested_size){
     return NULL;
 }
 
-/* Request more memory by calling mem_map
- * Initialize the new chunk of memory as applicable
- * Update free list if applicable
+/* 
+  Request additionaly memory with mem_map.
+  Initialize the new chunk of memory as applicable
+  Update free list if applicable
  */
 static void* extend(size_t s){
     size_t requested_size = multiplier * PAGE_ALIGN(s+(OVERHEAD * 2));
@@ -168,24 +170,18 @@ int mm_init(void)
     return 0;
 }
 
-/* Set a block to allocated
+/* 
+ * Set a block to allocated
  * Update block headers/footers as needed
  * Update free list if applicable
  * Split block if applicable
  */
 static void* set_allocated(void* b, size_t size){
-    //size_t* page_words = (size_t*)b;
-    //page_words[1] = PACK(size, 1);
-
     size_t prev_size = GET_SIZE(HDRP(b));
     size_t left_over = prev_size - size;
-
-    //node* prev_node = ((node*)(b))->prev;
-    //node* next_node = ((node*)(b))->next;
     
     linked_list_remove((node*)(b));
 
-    // don't split
     if(left_over < OVERHEAD + sizeof(node)){
         PUT(HDRP(b), PACK(GET_SIZE(HDRP(b)), 1));
         PUT(FTRP(b), PACK(GET_SIZE(FTRP(b)), 1));
@@ -211,16 +207,12 @@ static void* set_allocated(void* b, size_t size){
 void *mm_malloc(size_t size)
 {
     size_t maxsize = MAX(size, sizeof(node));
-    // might have to change to size_t
     size_t newsize = ALIGN(maxsize + BLOCK_OVERHEAD);
 
     node* block;
-
     block = linked_list_find(newsize);
 
-    // couldn't find anything of size
-    if(block == NULL){
-        // need a new page to allocate
+    if(block == NULL){ // couldn't find anything of size
         block = extend(newsize);
         set_allocated(block, newsize);
     }
@@ -231,50 +223,47 @@ void *mm_malloc(size_t size)
     return (void*)(block);
 }
 
-/* Coalesce a free block if applicable
- * Returns pointer to new coalesced block
- */
+/* 
+  Coalesce a free block if applicable
+  Returns pointer to new coalesced block
+*/
 static void* coalesce(void* bp){
-    // 4 cases for coalescing
-    // First case is when neither of its neighbors are free. So we just set the allocated bit to zero
-    // Second case is when the right neighbor is free. We combine both blocks into one and adjust the header and footer
-    // Third case is when the left neighbor is free. We update the left block's header and the current block's footer
-    // Fourth case is when the left and right blocks are free. We combine all three blocks and update the left block's header
-    // and the right block's footer
-
     size_t ptr_size = GET_SIZE(HDRP(bp));
     
     void* new_block = bp;
 
-    void* left_neighbor = PREV_BLKP(bp);
-    void* right_neighbor = NEXT_BLKP(bp);
+    void* left = PREV_BLKP(bp);
+    void* right = NEXT_BLKP(bp);
 
-    size_t left_neighbor_alloc = GET_ALLOC(HDRP(left_neighbor));
-    size_t right_neighbor_alloc = GET_ALLOC(HDRP(right_neighbor));
+    size_t left_alloc = GET_ALLOC(HDRP(left));
+    size_t right_alloc = GET_ALLOC(HDRP(right));
 
     // When both neighbors are free
-    if(!left_neighbor_alloc && !right_neighbor_alloc){
-        size_t new_size = GET_SIZE(HDRP(left_neighbor)) + ptr_size + GET_SIZE(HDRP(right_neighbor));
-        linked_list_remove((node*)(right_neighbor));
-        PUT(HDRP(left_neighbor), PACK(new_size, 0));
-        PUT(FTRP(left_neighbor), PACK(new_size, 0));
-        new_block = left_neighbor;
+    if(!left_alloc && !right_alloc){
+        size_t new_size = GET_SIZE(HDRP(left)) + ptr_size + GET_SIZE(HDRP(right));
+        linked_list_remove((node*)(right));
+        PUT(HDRP(left), PACK(new_size, 0));
+        PUT(FTRP(left), PACK(new_size, 0));
+        new_block = left;
     }
+
     // When the left neigbor is free
-    else if(!left_neighbor_alloc && right_neighbor_alloc){
-        size_t new_size = GET_SIZE(HDRP(left_neighbor)) + ptr_size;
-        PUT(HDRP(left_neighbor), PACK(new_size, 0));
-        PUT(FTRP(left_neighbor), PACK(new_size, 0));
-        new_block = left_neighbor;
+    else if(!left_alloc && right_alloc){
+        size_t new_size = GET_SIZE(HDRP(left)) + ptr_size;
+        PUT(HDRP(left), PACK(new_size, 0));
+        PUT(FTRP(left), PACK(new_size, 0));
+        new_block = left;
     }
+
     // When the right neighbor is free
-    else if(left_neighbor_alloc && !right_neighbor_alloc){
-        size_t new_size = ptr_size + GET_SIZE(HDRP(right_neighbor));
-        linked_list_remove((node*)(right_neighbor));
+    else if(left_alloc && !right_alloc){
+        size_t new_size = ptr_size + GET_SIZE(HDRP(right));
+        linked_list_remove((node*)(right));
         linked_list_add((node*)(bp));
         PUT(HDRP(bp), PACK(new_size, 0));
         PUT(FTRP(bp), PACK(new_size, 0));
     }
+
     // When neither neighbor is free
     else{
         PUT(HDRP(bp), PACK(ptr_size, 0));
@@ -286,13 +275,15 @@ static void* coalesce(void* bp){
     return new_block;
 }
 
-// Checks if you can unmap the page
+/*
+  hecks if you can unmap the page
+*/
 static void unmap_page(void* ptr){
-    void* left_neighbor = HDRP(PREV_BLKP(ptr));
-    void* right_neighbor = HDRP(NEXT_BLKP(ptr));
+    void* left = HDRP(PREV_BLKP(ptr));
+    void* right = HDRP(NEXT_BLKP(ptr));
 
     // check if the size of the previous is overhead and the size of the next is 0
-    if(GET_SIZE(left_neighbor) == OVERHEAD && GET_SIZE(right_neighbor) == 0){
+    if(GET_SIZE(left) == OVERHEAD && GET_SIZE(right) == 0){
         size_t page_size = PAGE_ALIGN(GET_SIZE(HDRP(ptr)));
         linked_list_remove((node*)(ptr));
         mem_unmap((ptr-BLOCK_OVERHEAD*2), page_size);
