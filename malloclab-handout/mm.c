@@ -58,42 +58,43 @@
 
 #define MAX(x, y) ((x) > (y) ? (x):(y))
 
-// explicit free list
-typedef struct list_node{
-    struct list_node *next;
-    struct list_node *prev;
-} list_node;
+// ========= Linked List Functions ========
+
+typedef struct node{
+    struct node *next;
+    struct node *prev;
+} node;
 
 typedef size_t block_header;
 typedef size_t block_footer;
 
 // start of linked list
-list_node* head = NULL;
+node* head = NULL;
 
 size_t multiplier = 2;
 
 // adds to the linked list
-void linked_list_add(list_node* new_head){
+void linked_list_add(node* new){
     if(head == NULL){
-        head = new_head;
+        head = new;
         head->next = NULL;
         head->prev = NULL;
     }
     else{
-        head->prev = new_head;
-        new_head->next = head;
-        head = new_head;
+        head->prev = new;
+        new->next = head;
+        head = new;
         head->prev = NULL;
     }
 }
 
 // removes from the linked list
-void linked_list_remove(list_node* node){
-    list_node* node_prev = node->prev;
-    list_node* node_next = node->next;
+void linked_list_remove(node* curr){
+    node* node_prev = curr->prev;
+    node* node_next = curr->next;
 
     // if node == head then the head is now equal to the node
-    if(node == head) {
+    if(curr == head) {
         head = node_next;
     }
 
@@ -111,25 +112,19 @@ void linked_list_remove(list_node* node){
 }
 
 // finds a node in the linked list 
-list_node* linked_list_find(size_t requested_size){
-    list_node* current_node;
-    current_node = head;
+node* linked_list_find(size_t requested_size){
+    node* current;
+    current = head;
 
-    while(current_node != NULL){
-        // Is the current block big enough? (Check this block's header)
-        if(GET_SIZE(HDRP((void*)(current_node))) >= requested_size) {
-            // Remove the current block from the free list
-            linked_list_remove(current_node);
-
-            // Return the found block
-            return current_node;
+    while(current != NULL){
+        // if the current block big enough
+        if(GET_SIZE(HDRP((void*)(current))) >= requested_size) {
+            linked_list_remove(current);
+            return current;
         }
-
-        // Didn't find a big enough block, keep looking
-        current_node = current_node->next;
+        // not big enough
+        current = current->next;
     }
-
-    // If we didn't find a sufficiently-large free block, return 'NULL'
     return NULL;
 }
 
@@ -185,13 +180,13 @@ static void* set_allocated(void* b, size_t size){
     size_t prev_size = GET_SIZE(HDRP(b));
     size_t left_over = prev_size - size;
 
-    //list_node* prev_node = ((list_node*)(b))->prev;
-    //list_node* next_node = ((list_node*)(b))->next;
+    //node* prev_node = ((node*)(b))->prev;
+    //node* next_node = ((node*)(b))->next;
     
-    linked_list_remove((list_node*)(b));
+    linked_list_remove((node*)(b));
 
     // don't split
-    if(left_over < OVERHEAD + sizeof(list_node)){
+    if(left_over < OVERHEAD + sizeof(node)){
         PUT(HDRP(b), PACK(GET_SIZE(HDRP(b)), 1));
         PUT(FTRP(b), PACK(GET_SIZE(FTRP(b)), 1));
     }
@@ -203,7 +198,7 @@ static void* set_allocated(void* b, size_t size){
         PUT(HDRP(new_header), PACK(left_over, 0));
         PUT(FTRP(new_header), PACK(left_over, 0));
 
-        linked_list_add((list_node*)(new_header));
+        linked_list_add((node*)(new_header));
     }
 
     return b;
@@ -215,11 +210,11 @@ static void* set_allocated(void* b, size_t size){
  */
 void *mm_malloc(size_t size)
 {
-    size_t maxsize = MAX(size, sizeof(list_node));
+    size_t maxsize = MAX(size, sizeof(node));
     // might have to change to size_t
     size_t newsize = ALIGN(maxsize + BLOCK_OVERHEAD);
 
-    list_node* block;
+    node* block;
 
     block = linked_list_find(newsize);
 
@@ -260,7 +255,7 @@ static void* coalesce(void* bp){
     // When both neighbors are free
     if(!left_neighbor_alloc && !right_neighbor_alloc){
         size_t new_size = GET_SIZE(HDRP(left_neighbor)) + ptr_size + GET_SIZE(HDRP(right_neighbor));
-        linked_list_remove((list_node*)(right_neighbor));
+        linked_list_remove((node*)(right_neighbor));
         PUT(HDRP(left_neighbor), PACK(new_size, 0));
         PUT(FTRP(left_neighbor), PACK(new_size, 0));
         new_block = left_neighbor;
@@ -275,8 +270,8 @@ static void* coalesce(void* bp){
     // When the right neighbor is free
     else if(left_neighbor_alloc && !right_neighbor_alloc){
         size_t new_size = ptr_size + GET_SIZE(HDRP(right_neighbor));
-        linked_list_remove((list_node*)(right_neighbor));
-        linked_list_add((list_node*)(bp));
+        linked_list_remove((node*)(right_neighbor));
+        linked_list_add((node*)(bp));
         PUT(HDRP(bp), PACK(new_size, 0));
         PUT(FTRP(bp), PACK(new_size, 0));
     }
@@ -285,7 +280,7 @@ static void* coalesce(void* bp){
         PUT(HDRP(bp), PACK(ptr_size, 0));
         PUT(FTRP(bp), PACK(ptr_size, 0));
 
-        linked_list_add((list_node*)(bp));
+        linked_list_add((node*)(bp));
     }
 
     return new_block;
@@ -299,7 +294,7 @@ static void unmap_page(void* ptr){
     // check if the size of the previous is overhead and the size of the next is 0
     if(GET_SIZE(left_neighbor) == OVERHEAD && GET_SIZE(right_neighbor) == 0){
         size_t page_size = PAGE_ALIGN(GET_SIZE(HDRP(ptr)));
-        linked_list_remove((list_node*)(ptr));
+        linked_list_remove((node*)(ptr));
         mem_unmap((ptr-BLOCK_OVERHEAD*2), page_size);
     }
 }
